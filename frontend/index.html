@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CalcInk — Draw & Calculate</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="container">
+    <h1>🖊️ CalcInk</h1>
+    <p class="subtitle">Draw your math expression below</p>
+
+    <!-- The drawing area -->
+    <div class="canvas-wrapper">
+      <canvas id="drawCanvas" width="700" height="180"></canvas>
+    </div>
+
+    <!-- Buttons -->
+    <div class="controls">
+      <button id="clearBtn">🗑️ Clear</button>
+    </div>
+
+    <!-- Where the result shows up -->
+    <div class="result-box" id="resultBox">
+      <span id="resultText">Draw something and hit Solve!</span>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
