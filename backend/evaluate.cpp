@@ -1,4 +1,13 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <stack>
+#include <stdexcept>
+#include <cctype>
+#include <sstream>
+#include <iomanip>
+#include <cmath>
+#include <emscripten/bind.h>
 using namespace std;
 
 int precedence(const string& op){
@@ -27,7 +36,7 @@ vector<string> toPostfix(const string&expression){
             if(!expectOperand) throw runtime_error("Missing operator");
 
             size_t used = 0;
-            stod(expression.substr(i), &used);
+            (void)stod(expression.substr(i), &used);
             postfix.push_back(expression.substr(i, used));
             i += used;
             expectOperand = false;
@@ -136,34 +145,43 @@ double evaluatePostfix(const vector<string>& postfix){
     return values.top();
 }
 
-int main() {
-    string expression;
-    getline(cin, expression);
-
-    // Trim trailing whitespace/newline (original had pop_back which ate the last real char)
-    while (!expression.empty() && (expression.back() == '\n' || expression.back() == '\r' || expression.back() == ' ')) {
-        expression.pop_back();
-    }
-
-    if (expression.empty()) {
-        cout << "Error: Empty expression\n";
-        return 1;
-    }
-
-    try{
-        vector<string> postfix = toPostfix(expression);
-        double result = evaluatePostfix(postfix);
-        
-        // Restored your friend's original output format!
-        cout<<"Postfix: ";
-        for(auto token : postfix){
-            cout<<token<<' ';
+string calculate(string expression) {
+    try {
+        // Only calculate a completed equation.
+        if (expression.empty() || expression.back() != '=') {
+            return "Waiting";
         }
-        cout<<"\nResult: "<<result<<'\n';
-    }
-    catch(const exception& error){
-        cout<<"Error: "<<error.what()<<'\n';
-    }
 
-    return 0;
+        expression.pop_back(); // Remove terminal =.
+
+        // Reject unexpected characters before entering the parser.
+        // The formatter should already have removed spaces.
+        if (expression.find_first_not_of("0123456789.+-*/()")
+            != string::npos) {
+            return "Error: Unsupported character";
+        }
+
+        double result = evaluatePostfix(toPostfix(expression));
+
+        if (!isfinite(result)) {
+            return "Undefined";
+        }
+
+        ostringstream output;
+        output << setprecision(15) << result;
+
+        return output.str();
+    }
+    catch (const exception& error) {
+        if (string(error.what()) == "Division by zero") {
+            return "Undefined";
+        }
+
+        return string("Error: ") + error.what();
+    }
+}
+
+// Make calculate() accessible from JavaScript.
+EMSCRIPTEN_BINDINGS(calcink) {
+    emscripten::function("calculate", &calculate);
 }
