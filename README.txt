@@ -62,6 +62,14 @@ are derived from strokes; they are not independent history actions.
 
 Calculation history
 -------------------
+Calculated answers also appear beside the trailing = in the drawing area.
+If the answer does not fit beside the ink, it appears below it; extra room is
+added at the bottom when needed. Answers follow the drawing on resize and
+disappear as soon as drawing/history changes invalidate the calculation.
+They are display text, so they do not enter stroke history or recognition.
+The model returns text without symbol positions; placement uses the rightmost
+horizontal strokes as the equals-sign anchor, or the drawing bounds otherwise.
+
 Calculation history keeps the latest 10 evaluated equations and answers as
 text, newest first. When full, the oldest entry is removed for the next result.
 Incomplete expressions, calculator errors and outdated recognition replies
@@ -89,6 +97,8 @@ erase history, no-op erasing, fragment restoration, Clear during erasing and
 recognition requests after eraser undo/redo.
 Calculation-history checks cover the 10-entry limit, equation/answer pairing,
 retention after Clear, repeated evaluations, errors and outdated replies.
+Answer-placement checks cover positioning beside/below the equation, space
+at the bottom edge, resizing, stale replies and restoration after Clear.
 The pipeline test uses the real LaTeX formatter and bundled evaluate.wasm to
 check that restored stroke data can produce calculations such as 2*3=6.
 Controlled worker replies make history tests independent of recognition speed

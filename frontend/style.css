@@ -94,6 +94,7 @@ button {
 }
 
 .canvas-wrapper {
+  position: relative;
   display: block;
   width: 100%;
   overflow: hidden;
@@ -110,6 +111,17 @@ button {
   height: auto;
   aspect-ratio: 9 / 4;
   touch-action: none;
+  user-select: none;
+}
+
+#canvasAnswer {
+  position: absolute;
+  width: max-content;
+  color: var(--accent);
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  pointer-events: none;
   user-select: none;
 }
 

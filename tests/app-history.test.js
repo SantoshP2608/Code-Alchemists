@@ -65,9 +65,11 @@ async function setup({
     const elements = Object.fromEntries([
         "canvas", "answer", "preview", "undoBtn", "redoBtn", "clearBtn",
         "pencilBtn", "eraserBtn", "eraserMode", "sizeSlider", "sizeValue",
-        "calculationHistory", "historyEmpty", "historyCount"
+        "calculationHistory", "historyEmpty", "historyCount", "canvasAnswer", "canvasWrapper"
     ].map(id => [id, element()]));
     elements.historyCount.textContent = "0 / 10";
+    elements.canvasAnswer.hidden = true;
+    elements.canvasAnswer.rectangle = { left: 0, top: 0, width: 60, height: 32 };
     const document = {
         ...element(), getElementById: id => elements[id], createElement: () => element()
     };
@@ -120,6 +122,94 @@ async function setup({
 function historyRows(app) {
     return app.calculationHistory.children.map(row => row.children.map(child => child.textContent));
 }
+
+function drawLine(app, x1, y1, x2, y2) {
+    app.canvas.emit("pointerdown", { clientX: x1, clientY: y1 });
+    app.canvas.emit("pointerup", { clientX: x2, clientY: y2 });
+}
+
+test("answers sit beside the equals ink and follow resize without entering stroke history", async () => {
+    const app = await setup({ loadEvaluator: async () => ({ calculate: () => "1" }) });
+    drawLine(app, 100, 100, 100, 200);
+    drawLine(app, 200, 140, 240, 140);
+    drawLine(app, 200, 160, 240, 160);
+    app.tick();
+    const request = app.worker.requests.at(-1);
+    app.message({ type: "result", version: request.version, latex: "1=" });
+    assert.equal(app.canvasAnswer.textContent, "1");
+    assert.equal(app.canvasAnswer.hidden, false);
+    const left = parseFloat(app.canvasAnswer.style.left);
+    const top = parseFloat(app.canvasAnswer.style.top);
+    assert.ok(left > 242.5 && left + 60 < 900);
+    assert.ok(top < 140 && top + 32 > 160);
+    assert.equal(app.canvasWrapper.style.paddingBottom, "0px");
+    app.canvas.rectangle = { left: 0, top: 0, width: 450, height: 200 };
+    app.resize();
+    assert.ok(parseFloat(app.canvasAnswer.style.left) < left);
+    assert.ok(parseFloat(app.canvasAnswer.style.left) + 60 <= 450);
+    assert.equal(app.worker.requests.length, 1);
+    assert.equal(app.historyCount.textContent, "1 / 10");
+    app.clearBtn.emit("click");
+    assert.equal(app.canvasAnswer.hidden, true);
+    assert.equal(app.canvasAnswer.textContent, "");
+    app.undoBtn.emit("click");
+    assert.equal(app.canvasAnswer.hidden, true);
+    app.tick();
+    const restored = app.worker.requests.at(-1);
+    assert.deepEqual(restored.strokes, request.strokes); // Only the three ink strokes.
+    app.message({ type: "result", version: restored.version, latex: "1=" });
+    assert.equal(app.canvasAnswer.hidden, false);
+});
+
+test("answers fall below ink near the right edge and gain space at the bottom", async () => {
+    const app = await setup({ loadEvaluator: async () => ({ calculate: () => "123456789" }) });
+    drawLine(app, 800, 350, 800, 395);
+    drawLine(app, 850, 360, 890, 360);
+    drawLine(app, 850, 380, 890, 380);
+    app.tick();
+    app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: "123456789=" });
+    assert.equal(app.canvasAnswer.hidden, false);
+    assert.ok(parseFloat(app.canvasAnswer.style.top) > 397.5);
+    assert.ok(parseFloat(app.canvasAnswer.style.left) + 60 <= 892);
+    assert.ok(parseFloat(app.canvasWrapper.style.paddingBottom) > 0);
+    assert.equal(app.canvas.height, 800); // The drawable canvas was not extended.
+    app.canvasAnswer.rectangle.width = 880;
+    app.canvasAnswer.rectangle.height = 100;
+    app.resize();
+    assert.ok(parseFloat(app.canvasAnswer.style.left) >= 8);
+    assert.ok(parseFloat(app.canvasAnswer.style.left) + 880 <= 892);
+    app.clearBtn.emit("click");
+    assert.equal(app.canvasWrapper.style.paddingBottom, "0px");
+    assert.equal(app.canvasAnswer.hidden, true);
+});
+
+test("edits, errors and outdated replies cannot leave an old answer on the drawing", async () => {
+    const app = await setup({
+        format: formatLatex,
+        loadEvaluator: async () => ({ calculate: expression => expression === "2+=" ? "Error: Missing operand" : "1" })
+    });
+    app.stroke(10);
+    app.tick();
+    const first = app.worker.requests.at(-1);
+    app.message({ type: "result", version: first.version, latex: "1=" });
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.canvas.emit("pointerdown", { clientX: 40, clientY: 40 });
+    assert.equal(app.canvasAnswer.hidden, true);
+    app.message({ type: "result", version: first.version, latex: "old=" });
+    assert.equal(app.canvasAnswer.hidden, true);
+    app.canvas.emit("pointerup", { clientX: 40, clientY: 40 });
+    for (const latex of ["2+=", "x=", "2+3"]) {
+        app.tick();
+        app.message({ type: "result", version: app.worker.requests.at(-1).version, latex });
+        assert.equal(app.canvasAnswer.hidden, true);
+        app.stroke(50);
+    }
+    app.tick();
+    app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: "1=" });
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.worker.onerror({ message: "Worker stopped" });
+    assert.equal(app.canvasAnswer.hidden, true);
+});
 
 test("calculation history pairs equations and answers, keeping only the latest 10", async () => {
     const app = await setup({

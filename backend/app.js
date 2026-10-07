@@ -4,6 +4,8 @@ import { formatLatex } from "./formatter.js";
 const canvas = document.getElementById("canvas");
 const context = canvas.getContext("2d");
 const display = document.getElementById("answer");
+const canvasAnswer = document.getElementById("canvasAnswer");
+const canvasWrapper = document.getElementById("canvasWrapper");
 const undoBtn = document.getElementById("undoBtn");
 const redoBtn = document.getElementById("redoBtn");
 const strokes = [];
@@ -179,6 +181,7 @@ createEvaluator().then(function (module) {
 
 function showAnswer(latex) {
     console.log("Model output:", latex);
+    clearCanvasAnswer();
 
     try {
         const expression = formatLatex(latex);
@@ -192,6 +195,9 @@ function showAnswer(latex) {
         const answer = String(evaluator.calculate(expression));
         display.textContent = answer;
         if (answer !== "Waiting" && !answer.startsWith("Error:")) {
+            canvasAnswer.textContent = answer;
+            canvasAnswer.hidden = false;
+            positionCanvasAnswer();
             calculationHistory.push({ equation: expression, answer });
             if (calculationHistory.length > calculationHistoryLimit) {
                 calculationHistory.shift();
@@ -202,6 +208,64 @@ function showAnswer(latex) {
         display.textContent =
             "Recognized: " + latex + " — " + error.message;
     }
+}
+
+function clearCanvasAnswer() {
+    canvasAnswer.hidden = true;
+    canvasAnswer.textContent = "";
+    canvasWrapper.style.paddingBottom = "0px";
+}
+
+function positionCanvasAnswer() {
+    if (canvasAnswer.hidden || !strokes.length) return;
+
+    // The recognizer returns text, not symbol locations. Anchor to the trailing
+    // horizontal ink (normally =), falling back to the whole drawing's bounds.
+    const bounds = strokes.map(stroke => {
+        const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+        for (const point of stroke.points) {
+            const radius = stroke.lineWidth / 2;
+            box.minX = Math.min(box.minX, point.x - radius);
+            box.minY = Math.min(box.minY, point.y - radius);
+            box.maxX = Math.max(box.maxX, point.x + radius);
+            box.maxY = Math.max(box.maxY, point.y + radius);
+        }
+        return box;
+    });
+    function combine(boxes) {
+        return boxes.reduce((total, box) => ({
+            minX: Math.min(total.minX, box.minX), minY: Math.min(total.minY, box.minY),
+            maxX: Math.max(total.maxX, box.maxX), maxY: Math.max(total.maxY, box.maxY)
+        }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+    }
+    const { minY, maxY, maxX } = combine(bounds);
+    const trailingLines = bounds.filter(box =>
+        box.maxX >= maxX - 20 && box.maxX - box.minX >= 10 &&
+        box.maxY - box.minY <= (box.maxX - box.minX) / 3
+    );
+    const anchor = trailingLines.length ? trailingLines : bounds;
+    const { minX: anchorLeft, minY: anchorTop, maxY: anchorBottom } = combine(anchor);
+    const rectangle = canvas.getBoundingClientRect();
+    const scaleX = rectangle.width / logicalWidth;
+    const scaleY = rectangle.height / logicalHeight;
+    const margin = 8;
+    const gap = Math.max(8, 12 * scaleX);
+    const fontSize = Math.max(16, Math.min(56, Math.max(28, (maxY - minY) * 0.65)) * scaleY);
+    canvasAnswer.style.fontSize = `${fontSize}px`;
+    canvasAnswer.style.maxWidth = `${Math.max(1, rectangle.width - margin * 2)}px`;
+    const answerBox = canvasAnswer.getBoundingClientRect();
+    let left = Math.max(margin, maxX * scaleX + gap);
+    let top = Math.max(margin, Math.min(rectangle.height - margin - answerBox.height,
+        (anchorTop + anchorBottom) / 2 * scaleY - answerBox.height / 2));
+    if (left + answerBox.width > rectangle.width - margin) {
+        left = Math.max(margin, Math.min(anchorLeft * scaleX, rectangle.width - margin - answerBox.width));
+        top = Math.max(margin, Math.min(logicalHeight, maxY) * scaleY + gap);
+    }
+    canvasAnswer.style.left = `${left}px`;
+    canvasAnswer.style.top = `${top}px`;
+    // Add room below the ink instead of clipping a result at the canvas edge.
+    // This does not change the drawing canvas or its logical coordinates.
+    canvasWrapper.style.paddingBottom = `${Math.max(0, top + answerBox.height + margin - rectangle.height)}px`;
 }
 
 function renderCalculationHistory() {
@@ -278,6 +342,7 @@ function resizeCanvas() {
     for (const stroke of strokes) drawStroke(stroke);
     if (currentStroke) drawStroke(currentStroke);
 
+    positionCanvasAnswer();
     updateCursor();
 }
 
@@ -315,6 +380,7 @@ function invalidateDrawing() {
     recognitionPending = false;
     drawingVersion += 1;
     display.textContent = "";
+    clearCanvasAnswer();
     clearPreview();
 }
 
@@ -798,6 +864,7 @@ worker.onerror = function (event) {
     recognitionBusy = false;
     recognitionVersion = null;
     recognitionPending = false;
+    clearCanvasAnswer();
 
     display.textContent =
         "Recognition worker failed: " + event.message;
