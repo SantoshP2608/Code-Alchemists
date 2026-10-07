@@ -474,7 +474,8 @@ function positionEquationAnswer(equation) {
     const anchor = trailingLines.length ? trailingLines : bounds;
     const { minX: anchorLeft, minY: anchorTop, maxY: anchorBottom } = combine(anchor);
     const scale = viewportScale();
-    const fontSize = Math.max(28, Math.min(56, (maxY - minY) * 0.65)) * scale;
+    // Size against visible ink, then clamp in screen pixels so zoom-out stays readable.
+    const fontSize = Math.max(28, Math.min(56, (maxY - minY) * scale * 0.65));
     canvasAnswer.style.fontSize = `${fontSize}px`;
     canvasAnswer.style.maxWidth = "none";
     const answerBox = canvasAnswer.getBoundingClientRect();

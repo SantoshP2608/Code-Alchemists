@@ -1,6 +1,8 @@
-## [Click this link to use the app → CalcInk on Vercel](https://code-alchemists-gilt.vercel.app/)
+## <a href="https://code-alchemists-gilt.vercel.app/" target="_blank" rel="noopener noreferrer">Click this link to use the app → CalcInk on Vercel</a>
 
 No installation needed. Open the link, wait for **Handwriting model ready**, and write an equation ending in **`=`**.
+
+To open the app in a new tab from GitHub, **Ctrl-click** the link (Windows/Linux) or **Cmd-click** it (macOS). GitHub removes new-tab attributes from rendered README links.
 
 ---
 
@@ -10,11 +12,11 @@ No installation needed. Open the link, wait for **Handwriting model ready**, and
 
 Built by **Code Alchemists**, CalcInk combines a movable drawing canvas, on-device handwriting recognition, and a C++ calculator running through WebAssembly. Write with a mouse, touch, or pen; edit your work and let the result update in place.
 
-**[Try the live app](https://code-alchemists-gilt.vercel.app/) · [Run locally](#run-locally) · [How it works](#how-it-works) · [Tests](#tests)**
+**<a href="https://code-alchemists-gilt.vercel.app/" target="_blank" rel="noopener noreferrer">Try the live app</a> · [Run locally](#run-locally) · [How it works](#how-it-works) · [Tests](#tests)**
 
 ## Start writing
 
-1. Open the [live app](https://code-alchemists-gilt.vercel.app/) and wait for the model to finish loading.
+1. Open the <a href="https://code-alchemists-gilt.vercel.app/" target="_blank" rel="noopener noreferrer">live app</a> and wait for the model to finish loading.
 2. Select **Pencil** and write a horizontal expression ending in `=`.
 3. Pause briefly. CalcInk recognizes the expression and places its answer beside it.
 4. Write another equation on a separate row or alongside it, leaving a clear gap.
@@ -187,7 +189,7 @@ The active page loads **`backend/app.js`**. Despite its name, `backend/` contain
 npm test
 ```
 
-**81 automated tests passed during this README update.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, display-density changes, and inference resource cleanup.
+**83 automated tests passed during the latest update.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, answer readability at reduced zoom, display-density changes, and inference resource cleanup.
 
 Tests use controlled DOM, canvas, and worker boundaries. They verify application behavior but do not measure real handwriting accuracy, frame rate, or long-session browser memory usage. Node's experimental VM Modules warning is expected for this test setup.
 
@@ -219,4 +221,4 @@ The bundled files are `models/encoder_int8.onnx`, `models/decoder_int8.onnx`, an
 
 ---
 
-**Pick up the pencil and try it: [Click this link to use CalcInk](https://code-alchemists-gilt.vercel.app/).**
+**Pick up the pencil and try it: <a href="https://code-alchemists-gilt.vercel.app/" target="_blank" rel="noopener noreferrer">Click this link to use CalcInk</a>.**

@@ -1177,6 +1177,38 @@ test("zoom holds the world point under the pointer fixed and bounds its scale", 
     assert.equal(app.zoomOutBtn.disabled, true);
 });
 
+test("equally sized visible handwriting gets equally sized answers at 100% and 25% zoom", async () => {
+    async function answerSize(zoomedOut) {
+        const app = await setup({ loadEvaluator: async () => ({ calculate: () => "2" }) });
+        if (zoomedOut) {
+            app.canvas.emit("wheel", { ctrlKey: true, deltaY: 10000,
+                clientX: 450, clientY: 200 });
+        }
+        drawLine(app, 100, 100, 100, 200);
+        app.tick();
+        app.message({ type: "result", version: app.worker.requests[0].version, latex: "1+1=" });
+        assert.equal(app.canvasAnswer.hidden, false);
+        return parseFloat(app.canvasAnswer.style.fontSize);
+    }
+    assert.equal(await answerSize(true), await answerSize(false));
+});
+
+test("existing answers remain readable when zooming out on a narrow viewport", async () => {
+    const app = await setup({ loadEvaluator: async () => ({ calculate: () => "2" }) });
+    drawLine(app, 100, 100, 100, 200);
+    app.tick();
+    app.message({ type: "result", version: app.worker.requests[0].version, latex: "1+1=" });
+    app.canvas.rectangle.width = 450;
+    app.canvas.rectangle.height = 200;
+    app.resize();
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: 10000,
+        clientX: 225, clientY: 100 });
+    assert.ok(parseFloat(app.canvasAnswer.style.fontSize) >= 28);
+    assert.equal(app.canvasAnswer.textContent, "2");
+    assert.equal(app.worker.requests.length, 1);
+    assert.equal(app.historyCount.textContent, "1 / 10");
+});
+
 test("viewport navigation leaves undo, redo and pending recognition unchanged", async () => {
     const app = await setup();
     app.stroke(100);
