@@ -31,7 +31,10 @@ async function setup({
             "lineTo", "stroke", "setTransform", "clearRect", "putImageData", "save", "restore"
         ].map(name => [name, (...args) => calls.push({ name, args })]));
         return {
-            textContent: "Loading model...", disabled: false,
+            textContent: "Loading model...", disabled: false, open: false,
+            focus() { this.focused = true; },
+            showModal() { this.open = true; },
+            close() { this.open = false; this.emit("close"); },
             children: [], hidden: false,
             append(...children) { this.children.push(...children); },
             replaceChildren(...children) { this.children = children; },
@@ -71,10 +74,13 @@ async function setup({
     const elements = Object.fromEntries([
         "canvas", "answer", "preview", "undoBtn", "redoBtn", "clearBtn",
         "pencilBtn", "eraserBtn", "eraserMode", "sizeSlider", "sizeValue",
-        "calculationHistory", "historyEmpty", "historyCount", "canvasAnswer", "canvasWrapper"
+        "calculationHistory", "historyEmpty", "historyCount", "canvasAnswer", "canvasWrapper",
+        "panBtn", "eraserCursor", "zoomValue", "zoomOutBtn", "zoomInBtn", "resetViewBtn",
+        "historyBtn", "historyPanel", "closeHistoryBtn"
     ].map(id => [id, element()]));
     elements.historyCount.textContent = "0 / 10";
     elements.canvasAnswer.hidden = true;
+    elements.eraserCursor.hidden = true;
     elements.canvasAnswer.rectangle = { left: 0, top: 0, width: 60, height: 32 };
     const document = {
         ...element(), getElementById: id => elements[id], createElement: () => element()
@@ -289,7 +295,7 @@ test("answers sit beside the equals ink and follow resize without entering strok
     assert.equal(app.canvasAnswer.hidden, false);
 });
 
-test("answers fall below ink near the right edge and gain space at the bottom", async () => {
+test("answers remain beside world ink beyond the viewport edge without growing the bitmap", async () => {
     const app = await setup({ loadEvaluator: async () => ({ calculate: () => "123456789" }) });
     drawLine(app, 800, 350, 800, 395);
     drawLine(app, 850, 360, 890, 360);
@@ -297,15 +303,14 @@ test("answers fall below ink near the right edge and gain space at the bottom", 
     app.tick();
     app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: "123456789=" });
     assert.equal(app.canvasAnswer.hidden, false);
-    assert.ok(parseFloat(app.canvasAnswer.style.top) > 397.5);
-    assert.ok(parseFloat(app.canvasAnswer.style.left) + 60 <= 892);
-    assert.ok(parseFloat(app.canvasWrapper.style.paddingBottom) > 0);
+    assert.ok(parseFloat(app.canvasAnswer.style.left) > 892);
+    assert.equal(app.canvasWrapper.style.paddingBottom, "0px");
     assert.equal(app.canvas.height, 800); // The drawable canvas was not extended.
     app.canvasAnswer.rectangle.width = 880;
     app.canvasAnswer.rectangle.height = 100;
     app.resize();
-    assert.ok(parseFloat(app.canvasAnswer.style.left) >= 8);
-    assert.ok(parseFloat(app.canvasAnswer.style.left) + 880 <= 892);
+    assert.ok(parseFloat(app.canvasAnswer.style.left) > 892);
+    assert.equal(app.canvasAnswer.style.maxWidth, "none");
     app.clearBtn.emit("click");
     assert.equal(app.canvasWrapper.style.paddingBottom, "0px");
     assert.equal(app.canvasAnswer.hidden, true);
@@ -460,7 +465,8 @@ test("history changes clear answers and previews and ignore stale worker message
     app.tick();
     const { version } = app.worker.requests[0];
     app.message({ type: "result", version, latex: "2+3=" });
-    assert.equal(app.answer.textContent, "answer:2+3=");
+    assert.equal(app.canvasAnswer.textContent, "answer:2+3=");
+    assert.equal(app.answer.textContent, "Ready");
     app.preview.calls.length = 0;
     app.undoBtn.emit("click");
     assert.equal(app.answer.textContent, "");
@@ -492,7 +498,8 @@ test("busy recognition retains the latest history request after its timer expire
     assert.equal(latest.strokes.length, 1);
     assert.ok(latest.version > first.version);
     app.message({ type: "result", version: latest.version, latex: "1=" });
-    assert.equal(app.answer.textContent, "answer:1=");
+    assert.equal(app.canvasAnswer.textContent, "answer:1=");
+    assert.equal(app.answer.textContent, "Ready");
 });
 
 test("undo to empty and Clear stay empty after in-flight recognition", async () => {
@@ -640,7 +647,8 @@ test("Clear undo/redo during busy recognition rejects stale preview and results"
     assert.ok(latest.version > old.version);
     assert.equal(latest.strokes.length, 2);
     app.message({ type: "result", version: latest.version, latex: "2+3=" });
-    assert.equal(app.answer.textContent, "answer:2+3=");
+    assert.equal(app.canvasAnswer.textContent, "answer:2+3=");
+    assert.equal(app.answer.textContent, "Ready");
     app.redoBtn.emit("click");
     assert.equal(app.answer.textContent, "");
     assert.equal(app.preview.calls.at(-1).name, "clearRect");
@@ -836,7 +844,8 @@ test("a current recognition error is shown and the next edit can be recognized",
     app.tick();
     const second = app.worker.requests[1];
     app.message({ type: "result", version: second.version, latex: "2=" });
-    assert.equal(app.answer.textContent, "answer:2=");
+    assert.equal(app.canvasAnswer.textContent, "answer:2=");
+    assert.equal(app.answer.textContent, "Ready");
 });
 
 test("a fatal worker error rejects later messages but keeps drawing history usable", async () => {
@@ -885,7 +894,8 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     app.tick();
     const original = app.worker.requests[0];
     app.message({ type: "result", version: original.version, latex: "2 \\times 3 =" });
-    assert.equal(app.answer.textContent, "6");
+    assert.equal(app.canvasAnswer.textContent, "6");
+    assert.equal(app.answer.textContent, "Ready");
     assert.deepEqual(historyRows(app), [["2*3 = ", "6"]]);
     app.clearBtn.emit("click");
     app.undoBtn.emit("click");
@@ -893,14 +903,16 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     const restored = app.worker.requests[1];
     assert.deepEqual(restored.strokes, original.strokes);
     app.message({ type: "result", version: restored.version, latex: "2 \\times 3 =" });
-    assert.equal(app.answer.textContent, "6");
+    assert.equal(app.canvasAnswer.textContent, "6");
+    assert.equal(app.answer.textContent, "Ready");
     app.undoBtn.emit("click");
     app.redoBtn.emit("click");
     app.tick();
     const redone = app.worker.requests[2];
     assert.deepEqual(redone.strokes, original.strokes);
     app.message({ type: "result", version: redone.version, latex: "\\frac{12}{4}=" });
-    assert.equal(app.answer.textContent, "3");
+    assert.equal(app.canvasAnswer.textContent, "3");
+    assert.equal(app.answer.textContent, "Ready");
     assert.deepEqual(historyRows(app), [["(12)/(4) = ", "3"], ["2*3 = ", "6"], ["2*3 = ", "6"]]);
     app.stroke(100);
     app.tick();
@@ -913,7 +925,8 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     app.undoBtn.emit("click");
     app.tick();
     app.message({ type: "result", version: app.worker.requests[5].version, latex: "1/0=" });
-    assert.equal(app.answer.textContent, "Undefined");
+    assert.equal(app.canvasAnswer.textContent, "Undefined");
+    assert.equal(app.answer.textContent, "Ready");
 });
 
 function recognizedDrawing(app) {
@@ -956,7 +969,7 @@ test("pencil widths, tool settings and cursor selection survive undo/redo", asyn
     assert.equal(app.sizeSlider.value, "60");
     assert.equal(app.sizeSlider.getAttribute("aria-label"), "Eraser size");
     assert.equal(app.eraserBtn.classList.contains("active"), true);
-    assert.match(app.canvas.style.cursor, /data:image\/svg\+xml/);
+    assert.equal(app.canvas.style.cursor, "none");
 });
 
 test("a whole stroke-eraser sweep is one action even when it removes several strokes", async () => {
@@ -1100,5 +1113,130 @@ test("eraser edits and their history never accept outdated recognition results",
     const latest = app.worker.requests[1];
     assert.deepEqual(latest.strokes.map(s => s.points[0].x), [50]);
     app.message({ type: "result", version: latest.version, latex: "1=" });
-    assert.equal(app.answer.textContent, "answer:1=");
+    assert.equal(app.canvasAnswer.textContent, "answer:1=");
+    assert.equal(app.answer.textContent, "Ready");
+});
+
+test("hand panning reaches negative and distant world coordinates without recording ink", async () => {
+    const app = await setup();
+    app.panBtn.emit("click");
+    assert.equal(app.sizeSlider.disabled, true);
+    assert.equal(app.canvas.style.cursor, "grab");
+    app.canvas.emit("pointerdown", { clientX: 0, clientY: 0 });
+    assert.equal(app.canvas.style.cursor, "grabbing");
+    app.canvas.emit("pointermove", { clientX: 2000, clientY: -1000 });
+    app.canvas.emit("pointerup", { clientX: 2000, clientY: -1000 });
+    assert.equal(app.undoBtn.disabled, true);
+    assert.equal(app.worker.requests.length, 0);
+    assert.equal(app.canvas.width, 1800);
+    assert.equal(app.canvas.height, 800);
+    app.pencilBtn.emit("click");
+    app.stroke(100, true);
+    app.tick();
+    assert.deepEqual(app.worker.requests[0].strokes[0].points, [{ x: -1900, y: 1020 }]);
+});
+
+test("zoom holds the world point under the pointer fixed and bounds its scale", async () => {
+    const app = await setup();
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: -Math.log(2) / 0.002,
+        clientX: 450, clientY: 200 });
+    assert.equal(app.zoomValue.textContent, "200%");
+    app.canvas.emit("pointerdown", { clientX: 450, clientY: 200 });
+    app.canvas.emit("pointerup", { clientX: 450, clientY: 200 });
+    app.tick();
+    assert.deepEqual(app.worker.requests[0].strokes[0].points, [{ x: 450, y: 200 }]);
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: -10000, clientX: 450, clientY: 200 });
+    assert.equal(app.zoomValue.textContent, "300%");
+    assert.equal(app.zoomInBtn.disabled, true);
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: 10000, clientX: 450, clientY: 200 });
+    assert.equal(app.zoomValue.textContent, "25%");
+    assert.equal(app.zoomOutBtn.disabled, true);
+});
+
+test("viewport navigation leaves undo, redo and pending recognition unchanged", async () => {
+    const app = await setup();
+    app.stroke(100);
+    app.tick();
+    const original = app.worker.requests[0];
+    app.canvas.emit("wheel", { deltaX: 200, deltaY: 300, clientX: 450, clientY: 200 });
+    app.zoomInBtn.emit("click");
+    assert.equal(app.worker.requests.length, 1);
+    assert.equal(app.timerCount(), 0);
+    app.message({ type: "result", version: original.version, latex: "1=" });
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.undoBtn.emit("click");
+    app.redoBtn.emit("click");
+    app.tick();
+    assert.deepEqual(app.worker.requests.at(-1).strokes, original.strokes);
+    app.resetViewBtn.emit("click");
+    assert.equal(app.zoomValue.textContent, "100%");
+    assert.equal(app.canvas.width, 1800);
+});
+
+test("an active pencil or eraser gesture blocks wheel navigation and zoom buttons", async () => {
+    const app = await setup();
+    app.canvas.emit("pointerdown", { clientX: 100, clientY: 100 });
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: -1000, clientX: 450, clientY: 200 });
+    app.zoomInBtn.emit("click");
+    app.canvas.emit("pointerup", { clientX: 120, clientY: 100 });
+    app.tick();
+    assert.equal(app.zoomValue.textContent, "100%");
+    assert.deepEqual(app.worker.requests[0].strokes[0].points, [{ x: 100, y: 100 }, { x: 120, y: 100 }]);
+});
+
+test("middle mouse and Space offer temporary panning without changing the selected tool", async () => {
+    const app = await setup();
+    app.canvas.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
+    app.canvas.emit("pointermove", { clientX: 100, clientY: 0 });
+    app.canvas.emit("pointerup", { button: 1, clientX: 100, clientY: 0 });
+    assert.equal(app.pencilBtn.getAttribute("aria-pressed"), "true");
+    app.key(" ", { code: "Space" });
+    assert.equal(app.canvas.style.cursor, "grab");
+    app.canvas.emit("pointerdown", { clientX: 0, clientY: 0 });
+    app.canvas.emit("pointermove", { clientX: 100, clientY: 0 });
+    app.canvas.emit("pointerup", { clientX: 100, clientY: 0 });
+    app.browserWindow.emit("blur");
+    app.stroke(20, true);
+    app.tick();
+    assert.deepEqual(app.worker.requests[0].strokes[0].points, [{ x: -180, y: 20 }]);
+});
+
+test("inline answers travel with the ink instead of sticking to the screen", async () => {
+    const app = await setup({ loadEvaluator: async () => ({ calculate: () => "5" }) });
+    drawLine(app, 100, 100, 200, 100);
+    app.tick();
+    app.message({ type: "result", version: app.worker.requests[0].version, latex: "2+3=" });
+    const before = parseFloat(app.canvasAnswer.style.left);
+    app.canvas.emit("wheel", { deltaX: 150, deltaY: 0, clientX: 450, clientY: 200 });
+    assert.equal(parseFloat(app.canvasAnswer.style.left), before - 150);
+    assert.equal(app.canvasAnswer.textContent, "5");
+    assert.equal(app.answer.textContent, "Ready");
+    assert.equal(app.historyCount.textContent, "1 / 10");
+});
+
+test("history opens from its button, closes cleanly and returns keyboard focus", async () => {
+    const app = await setup();
+    assert.equal(app.historyPanel.open, false);
+    app.historyBtn.emit("click");
+    assert.equal(app.historyPanel.open, true);
+    assert.equal(app.historyBtn.getAttribute("aria-expanded"), "true");
+    app.closeHistoryBtn.emit("click");
+    assert.equal(app.historyPanel.open, false);
+    assert.equal(app.historyBtn.getAttribute("aria-expanded"), "false");
+    assert.equal(app.historyBtn.focused, true);
+});
+
+test("the eraser ring reflects zoom without changing the remembered brush size", async () => {
+    const app = await setup();
+    app.eraserBtn.emit("click");
+    app.sizeSlider.value = "60";
+    app.sizeSlider.emit("input");
+    app.canvas.emit("pointermove", { clientX: 80, clientY: 100 });
+    assert.equal(app.eraserCursor.style.width, "60px");
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: -Math.log(2) / 0.002,
+        clientX: 450, clientY: 200 });
+    assert.equal(app.eraserCursor.style.width, "120px");
+    assert.equal(app.sizeSlider.value, "60");
+    app.canvas.emit("pointerleave");
+    assert.equal(app.eraserCursor.hidden, true);
 });

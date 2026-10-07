@@ -16,6 +16,90 @@ const calculationHistory = [];
 const calculationHistoryLimit = 10;
 const logicalWidth = 900;
 const logicalHeight = 400;
+// Ink remains in world coordinates. Only a viewport-sized bitmap is allocated.
+const camera = { x: 0, y: 0, zoom: 1 };
+const strokeBoundsCache = new WeakMap();
+let panGesture = null;
+let spacePressed = false;
+let viewportFrame = null;
+const panBtn = document.getElementById("panBtn");
+const eraserCursor = document.getElementById("eraserCursor");
+let cursorPosition = null;
+
+function viewportScale() {
+    return canvas.getBoundingClientRect().width / logicalWidth * camera.zoom;
+}
+
+function syncViewport() {
+    const label = document.getElementById("zoomValue");
+    if (label) label.textContent = `${Math.round(camera.zoom * 100)}%`;
+    document.getElementById("zoomOutBtn").disabled = camera.zoom <= 0.25;
+    document.getElementById("zoomInBtn").disabled = camera.zoom >= 3;
+    const scale = viewportScale();
+    canvas.style.backgroundSize = `${24 * scale}px ${24 * scale}px`;
+    canvas.style.backgroundPosition = `${-camera.x * scale}px ${-camera.y * scale}px`;
+}
+
+function refreshViewport() {
+    resizeCanvas();
+    syncViewport();
+}
+
+function scheduleViewport() {
+    if (typeof requestAnimationFrame !== "function") {
+        refreshViewport();
+        return;
+    }
+    if (viewportFrame !== null) return;
+    viewportFrame = requestAnimationFrame(() => {
+        viewportFrame = null;
+        refreshViewport();
+    });
+}
+
+function zoomAt(nextZoom, clientX, clientY) {
+    if (currentStroke || erasingPointer !== null || panGesture) return;
+    const rectangle = canvas.getBoundingClientRect();
+    const before = getPoint({ clientX, clientY });
+    camera.zoom = Math.max(0.25, Math.min(3, nextZoom));
+    const scale = viewportScale();
+    camera.x = before.x - (clientX - rectangle.left) / scale;
+    camera.y = before.y - (clientY - rectangle.top) / scale;
+    scheduleViewport();
+}
+
+function zoomFromCenter(factor) {
+    const box = canvas.getBoundingClientRect();
+    zoomAt(camera.zoom * factor, box.left + box.width / 2, box.top + box.height / 2);
+}
+
+document.getElementById("zoomInBtn").addEventListener("click", () => zoomFromCenter(1.2));
+document.getElementById("zoomOutBtn").addEventListener("click", () => zoomFromCenter(1 / 1.2));
+document.getElementById("resetViewBtn").addEventListener("click", () => {
+    if (currentStroke || erasingPointer !== null || panGesture) return;
+    Object.assign(camera, { x: 0, y: 0, zoom: 1 });
+    scheduleViewport();
+});
+
+const historyBtn = document.getElementById("historyBtn");
+const historyPanel = document.getElementById("historyPanel");
+historyBtn.addEventListener("click", () => {
+    if (!historyPanel.open) {
+        historyPanel.showModal();
+        historyBtn.setAttribute("aria-expanded", "true");
+    }
+});
+document.getElementById("closeHistoryBtn").addEventListener("click", () => historyPanel.close());
+historyPanel.addEventListener("close", () => {
+    historyBtn.setAttribute("aria-expanded", "false");
+    historyBtn.focus();
+});
+historyPanel.addEventListener("click", event => {
+    const box = historyPanel.getBoundingClientRect();
+    if (event.target === historyPanel && (event.clientX < box.left ||
+        event.clientX > box.left + box.width || event.clientY < box.top ||
+        event.clientY > box.top + box.height)) historyPanel.close();
+});
 
 let currentStroke = null;
 let activeTool = "pencil";
@@ -29,7 +113,7 @@ let eraserMode = "stroke";
 const eraserModeSelect = document.getElementById("eraserMode");
 
 eraserModeSelect.addEventListener("change", function () {
-    if (currentStroke || erasingPointer !== null) {
+    if (currentStroke || erasingPointer !== null || panGesture) {
         eraserModeSelect.value = eraserMode;
         return;
     }
@@ -46,6 +130,7 @@ const sizeValue = document.getElementById("sizeValue");
 
 function syncSizeControl() {
     const pencil = activeTool === "pencil";
+    sizeSlider.disabled = activeTool === "pan";
 
     sizeSlider.min = pencil ? "1" : "8";
     sizeSlider.max = pencil ? "20" : "80";
@@ -62,6 +147,11 @@ function syncSizeControl() {
 }
 
 function updateCursor() {
+    if (activeTool === "pan" || spacePressed || panGesture) {
+        canvas.style.cursor = panGesture ? "grabbing" : "grab";
+        if (eraserCursor) eraserCursor.hidden = true;
+        return;
+    }
     let svg;
     let hotspotX;
     let hotspotY;
@@ -88,9 +178,9 @@ function updateCursor() {
         hotspotY = 26;
     } else {
         const scale =
-            canvas.getBoundingClientRect().width / logicalWidth;
+            viewportScale();
 
-        const radius = Math.max(2, eraserRadius * scale);
+        const radius = Math.min(56, Math.max(2, eraserRadius * scale));
         const side = Math.ceil(radius * 2 + 8);
         const center = Math.floor(side / 2);
 
@@ -111,10 +201,23 @@ function updateCursor() {
     canvas.style.cursor =
         `url("data:image/svg+xml,${encodeURIComponent(svg)}") ` +
         `${hotspotX} ${hotspotY}, default`;
+    if (eraserCursor) {
+        if (activeTool === "eraser") {
+            canvas.style.cursor = "none";
+            const diameter = eraserRadius * 2 * viewportScale();
+            eraserCursor.style.width = `${diameter}px`;
+            eraserCursor.style.height = `${diameter}px`;
+            if (cursorPosition) {
+                eraserCursor.style.left = `${cursorPosition.x}px`;
+                eraserCursor.style.top = `${cursorPosition.y}px`;
+                eraserCursor.hidden = false;
+            }
+        } else eraserCursor.hidden = true;
+    }
 }
 
 sizeSlider.addEventListener("input", function () {
-    if (currentStroke || erasingPointer !== null) {
+    if (currentStroke || erasingPointer !== null || panGesture) {
         syncSizeControl();
         return;
     }
@@ -134,13 +237,14 @@ const pencilBtn = document.getElementById("pencilBtn");
 const eraserBtn = document.getElementById("eraserBtn");
 
 function selectTool(tool) {
-    if (currentStroke || erasingPointer !== null) return;
+    if (currentStroke || erasingPointer !== null || panGesture) return;
 
     activeTool = tool;
 
     for (const [button, name] of [
         [pencilBtn, "pencil"],
-        [eraserBtn, "eraser"]
+        [eraserBtn, "eraser"],
+        [panBtn, "pan"]
     ]) {
         const selected = tool === name;
         button.classList.toggle("active", selected);
@@ -153,6 +257,7 @@ function selectTool(tool) {
 
 pencilBtn.addEventListener("click", () => selectTool("pencil"));
 eraserBtn.addEventListener("click", () => selectTool("eraser"));
+panBtn.addEventListener("click", () => selectTool("pan"));
 selectTool("pencil");
 
 let drawingVersion = 0;
@@ -197,7 +302,7 @@ function showAnswer(latex) {
         }
 
         const answer = String(evaluator.calculate(expression));
-        display.textContent = answer;
+        display.textContent = answer === "Waiting" || answer.startsWith("Error:") ? answer : "Ready";
         if (answer !== "Waiting" && !answer.startsWith("Error:")) {
             canvasAnswer.textContent = answer;
             canvasAnswer.hidden = false;
@@ -249,27 +354,14 @@ function positionCanvasAnswer() {
     );
     const anchor = trailingLines.length ? trailingLines : bounds;
     const { minX: anchorLeft, minY: anchorTop, maxY: anchorBottom } = combine(anchor);
-    const rectangle = canvas.getBoundingClientRect();
-    const scaleX = rectangle.width / logicalWidth;
-    const scaleY = rectangle.height / logicalHeight;
-    const margin = 8;
-    const gap = Math.max(8, 12 * scaleX);
-    const fontSize = Math.max(16, Math.min(56, Math.max(28, (maxY - minY) * 0.65)) * scaleY);
+    const scale = viewportScale();
+    const fontSize = Math.max(28, Math.min(56, (maxY - minY) * 0.65)) * scale;
     canvasAnswer.style.fontSize = `${fontSize}px`;
-    canvasAnswer.style.maxWidth = `${Math.max(1, rectangle.width - margin * 2)}px`;
+    canvasAnswer.style.maxWidth = "none";
     const answerBox = canvasAnswer.getBoundingClientRect();
-    let left = Math.max(margin, maxX * scaleX + gap);
-    let top = Math.max(margin, Math.min(rectangle.height - margin - answerBox.height,
-        (anchorTop + anchorBottom) / 2 * scaleY - answerBox.height / 2));
-    if (left + answerBox.width > rectangle.width - margin) {
-        left = Math.max(margin, Math.min(anchorLeft * scaleX, rectangle.width - margin - answerBox.width));
-        top = Math.max(margin, Math.min(logicalHeight, maxY) * scaleY + gap);
-    }
-    canvasAnswer.style.left = `${left}px`;
-    canvasAnswer.style.top = `${top}px`;
-    // Add room below the ink instead of clipping a result at the canvas edge.
-    // This does not change the drawing canvas or its logical coordinates.
-    canvasWrapper.style.paddingBottom = `${Math.max(0, top + answerBox.height + margin - rectangle.height)}px`;
+    canvasAnswer.style.left = `${(maxX - camera.x + 12) * scale}px`;
+    canvasAnswer.style.top = `${((anchorTop + anchorBottom) / 2 - camera.y) * scale - answerBox.height / 2}px`;
+    canvasWrapper.style.paddingBottom = "0px";
 }
 
 function renderCalculationHistory() {
@@ -297,6 +389,23 @@ function drawDot(point, width) {
 function drawStroke(stroke) {
     const points = stroke.points;
     if (!points.length) return;
+    // Only visible ink is painted; world data stays available to undo and inference.
+    let bounds = stroke === currentStroke ? null : strokeBoundsCache.get(stroke);
+    if (!bounds) {
+        bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+        const radius = stroke.lineWidth / 2;
+        for (const point of points) {
+            bounds.left = Math.min(bounds.left, point.x - radius);
+            bounds.top = Math.min(bounds.top, point.y - radius);
+            bounds.right = Math.max(bounds.right, point.x + radius);
+            bounds.bottom = Math.max(bounds.bottom, point.y + radius);
+        }
+        if (stroke !== currentStroke) strokeBoundsCache.set(stroke, bounds);
+    }
+    const rectangle = canvas.getBoundingClientRect();
+    const scale = viewportScale();
+    if (bounds.right < camera.x || bounds.left > camera.x + rectangle.width / scale ||
+        bounds.bottom < camera.y || bounds.top > camera.y + rectangle.height / scale) return;
 
     context.lineWidth = stroke.lineWidth;
     drawDot(points[0], stroke.lineWidth);
@@ -331,16 +440,16 @@ function resizeCanvas() {
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
 
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const scale = viewportScale();
+    const bitmapScaleX = canvas.width / rectangle.width;
+    const bitmapScaleY = canvas.height / rectangle.height;
     context.setTransform(
-        canvas.width / logicalWidth,
-        0,
-        0,
-        canvas.height / logicalHeight,
-        0,
-        0
+        bitmapScaleX * scale, 0, 0, bitmapScaleY * scale,
+        camera.x === 0 ? 0 : -camera.x * bitmapScaleX * scale,
+        camera.y === 0 ? 0 : -camera.y * bitmapScaleY * scale
     );
-    context.clearRect(0, 0, logicalWidth, logicalHeight);
-
     context.strokeStyle = "#252737";
     context.fillStyle = "#252737";
     context.lineWidth = pencilWidth;
@@ -352,6 +461,7 @@ function resizeCanvas() {
 
     positionCanvasAnswer();
     updateCursor();
+    syncViewport();
 }
 
 resizeCanvas();
@@ -378,6 +488,10 @@ window.addEventListener("pagehide", function (event) {
     pageClosed = true;
     clearTimeout(recognitionTimer);
     canvasObserver.disconnect();
+    if (viewportFrame !== null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(viewportFrame);
+        viewportFrame = null;
+    }
     pixelRatioQuery?.removeEventListener("change", handlePixelRatioChange);
     worker.onmessage = null;
     worker.onerror = null;
@@ -387,11 +501,10 @@ window.addEventListener("pagehide", function (event) {
 function getPoint(event) {
     const rectangle = canvas.getBoundingClientRect();
 
+    const scale = viewportScale();
     return {
-        x: (event.clientX - rectangle.left)
-            * logicalWidth / rectangle.width,
-        y: (event.clientY - rectangle.top)
-            * logicalHeight / rectangle.height
+        x: camera.x + (event.clientX - rectangle.left) / scale,
+        y: camera.y + (event.clientY - rectangle.top) / scale
     };
 }
 
@@ -404,7 +517,7 @@ function clearPreview() {
 }
 
 function updateHistoryButtons() {
-    const editing = currentStroke !== null || erasingPointer !== null;
+    const editing = currentStroke !== null || erasingPointer !== null || panGesture !== null;
     undoBtn.disabled = editing || undoActions.length === 0;
     redoBtn.disabled = editing || redoActions.length === 0;
 }
@@ -664,6 +777,21 @@ function eraseTo(point) {
 }
 
 canvas.addEventListener("pointerdown", function (event) {
+    // A fast tool change can happen before the queued viewport frame is painted.
+    if (viewportFrame !== null) {
+        cancelAnimationFrame(viewportFrame);
+        viewportFrame = null;
+        refreshViewport();
+    }
+    if (currentStroke || erasingPointer !== null || panGesture || event.isPrimary === false) return;
+    if (event.button === 1 || (event.button === 0 && (activeTool === "pan" || spacePressed))) {
+        event.preventDefault();
+        panGesture = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+        canvas.setPointerCapture(event.pointerId);
+        updateCursor();
+        updateHistoryButtons();
+        return;
+    }
     if (
         currentStroke !== null ||
         erasingPointer !== null ||
@@ -729,6 +857,20 @@ function addPoint(event) {
 }
 
 canvas.addEventListener("pointermove", function (event) {
+    const rectangle = canvas.getBoundingClientRect();
+    cursorPosition = { x: event.clientX - rectangle.left, y: event.clientY - rectangle.top };
+    if (panGesture) {
+        if (event.pointerId !== panGesture.pointerId) return;
+        event.preventDefault();
+        const scale = viewportScale();
+        camera.x -= (event.clientX - panGesture.x) / scale;
+        camera.y -= (event.clientY - panGesture.y) / scale;
+        panGesture.x = event.clientX;
+        panGesture.y = event.clientY;
+        scheduleViewport();
+        return;
+    }
+    updateCursor();
     if (erasingPointer === event.pointerId) {
         event.preventDefault();
 
@@ -755,6 +897,14 @@ canvas.addEventListener("pointermove", function (event) {
 });
 
 function finishStroke(event) {
+    if (panGesture) {
+        if (event.pointerId !== panGesture.pointerId) return;
+        panGesture = null;
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+        updateCursor();
+        updateHistoryButtons();
+        return;
+    }
     if (erasingPointer === event.pointerId) {
         if (event.type === "pointerup") eraseTo(getPoint(event));
 
@@ -811,6 +961,37 @@ function finishStroke(event) {
 canvas.addEventListener("pointerup", finishStroke);
 canvas.addEventListener("pointercancel", finishStroke);
 canvas.addEventListener("lostpointercapture", finishStroke);
+canvas.addEventListener("pointerleave", () => {
+    cursorPosition = null;
+    if (eraserCursor) eraserCursor.hidden = true;
+});
+canvas.addEventListener("wheel", event => {
+    event.preventDefault();
+    if (currentStroke || erasingPointer !== null || panGesture) return;
+    // Browsers deliver trackpad pinch as Ctrl+wheel.
+    if (event.ctrlKey || event.metaKey) {
+        zoomAt(camera.zoom * Math.exp(-event.deltaY * 0.002), event.clientX, event.clientY);
+    } else {
+        const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2
+            ? canvas.getBoundingClientRect().height : 1;
+        const scale = viewportScale();
+        camera.x += (event.shiftKey ? event.deltaY : event.deltaX) * units / scale;
+        camera.y += (event.shiftKey ? 0 : event.deltaY) * units / scale;
+        scheduleViewport();
+    }
+}, { passive: false });
+canvas.addEventListener("contextmenu", event => event.preventDefault());
+document.addEventListener("keyup", event => {
+    if (event.code === "Space" || event.key === " ") {
+        spacePressed = false;
+        updateCursor();
+    }
+});
+window.addEventListener("blur", () => {
+    spacePressed = false;
+    if (panGesture) finishStroke({ type: "pointercancel", pointerId: panGesture.pointerId });
+    updateCursor();
+});
 
 function scheduleRecognition() {
     clearTimeout(recognitionTimer);
@@ -827,7 +1008,7 @@ function scheduleRecognition() {
             return;
         }
 
-        if (currentStroke || erasingPointer !== null) return;
+        if (currentStroke || erasingPointer !== null || panGesture) return;
 
         recognitionPending = false;
         recognitionBusy = true;
@@ -934,7 +1115,19 @@ redoBtn.addEventListener("click", redo);
 
 const isWindows = /^Win/i.test(navigator.userAgentData?.platform || navigator.platform);
 document.addEventListener("keydown", function (event) {
-    if (event.defaultPrevented || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+    const targetPath = event.composedPath ? event.composedPath() : [event.target];
+    const editable = targetPath.some(element => element?.isContentEditable ||
+        element?.matches?.("input, textarea, select, button, [role='textbox']"));
+    if ((event.code === "Space" || event.key === " ") && !editable &&
+        !event.defaultPrevented && !historyPanel.open) {
+        event.preventDefault();
+        if (!currentStroke && erasingPointer === null) {
+            spacePressed = true;
+            updateCursor();
+        }
+        return;
+    }
+    if (historyPanel.open || event.defaultPrevented || event.altKey || !(event.ctrlKey || event.metaKey)) return;
     const path = event.composedPath ? event.composedPath() : [event.target];
     if (path.some(element => element.isContentEditable ||
         element.matches?.("input, textarea, select, [role='textbox']"))) return;
@@ -951,7 +1144,7 @@ document.addEventListener("keydown", function (event) {
 });
 
 document.getElementById("clearBtn").addEventListener("click", function () {
-    const pointerId = currentStroke?.pointerId ?? erasingPointer;
+    const pointerId = currentStroke?.pointerId ?? erasingPointer ?? panGesture?.pointerId ?? null;
     if (pointerId !== null) {
         // Finish the visible pencil/eraser edit before recording Clear. Pointer
         // state is reset before capture is released, so later events are inert.

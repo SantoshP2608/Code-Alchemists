@@ -1,92 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CalcInk — Draw & Calculate</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">✎</span>
+        <div><h1>CalcInk</h1><p>Your space to think.</p></div>
+      </div>
+      <div class="header-actions">
+        <span id="answer" class="app-status" role="status" aria-live="polite">Loading model...</span>
+        <button id="historyBtn" class="history-button" type="button"
+                aria-haspopup="dialog" aria-controls="historyPanel" aria-expanded="false">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7"/><path d="M12 7v5l3 2"/>
+          </svg>
+          <span>History</span>
+        </button>
+      </div>
+    </header>
 
-  <div class="container">
-    <h1>🖊️ CalcInk</h1>
-    <p class="subtitle">Draw your math expression and finish with =</p>
-
-    <div class="tool-bar">
-      <button id="pencilBtn" class="tool-btn active" type="button" title="Pencil" aria-label="Pencil"
-        aria-pressed="true">
-        ✏️
-      </button>
-
-      <button id="eraserBtn" class="tool-btn" type="button" title="Eraser" aria-label="Eraser" aria-pressed="false">
-        🧽
-      </button>
-
-      <select id="eraserMode" aria-label="Eraser mode" title="Eraser mode">
-        <option value="stroke">Stroke</option>
-        <option value="pixel">Pixel</option>
-      </select>
-    </div>
-
-    <div class="drawing-area">
-      <div class="size-control">
-        <label for="sizeSlider">Size</label>
-
-        <input id="sizeSlider" type="range" min="1" max="20" value="5" step="1">
-
-        <output id="sizeValue" for="sizeSlider">5</output>
+    <main class="workspace" aria-label="Math drawing workspace">
+      <div class="tool-bar" role="group" aria-label="Drawing tools">
+        <button id="pencilBtn" class="tool-btn active" type="button" title="Pencil" aria-label="Pencil" aria-pressed="true">✏️</button>
+        <button id="eraserBtn" class="tool-btn" type="button" title="Eraser" aria-label="Eraser" aria-pressed="false">🧽</button>
+        <button id="panBtn" class="tool-btn" type="button" title="Move canvas (or hold Space and drag)" aria-label="Move canvas" aria-pressed="false">
+          <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-9a1.5 1.5 0 0 1 3 0v9-7a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v7c0 4-2.8 7-7 7h-1c-2 0-3.5-.8-4.7-2.5L3.8 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/>
+          </svg>
+        </button>
+        <span class="tool-divider" aria-hidden="true"></span>
+        <select id="eraserMode" aria-label="Eraser mode" title="Eraser mode">
+          <option value="stroke">Stroke eraser</option><option value="pixel">Pixel eraser</option>
+        </select>
+        <span class="tool-hint">Finish your expression with =</span>
       </div>
 
-      <div class="canvas-wrapper" id="canvasWrapper">
-        <canvas id="canvas" width="900" height="400" aria-label="Draw your math expression"></canvas>
-        <output id="canvasAnswer" aria-label="Calculated answer" aria-live="polite" hidden></output>
+      <div class="drawing-area">
+        <div class="size-control">
+          <label for="sizeSlider">Size</label>
+          <input id="sizeSlider" type="range" min="1" max="20" value="5" step="1">
+          <output id="sizeValue" for="sizeSlider">5</output>
+        </div>
+        <div class="canvas-wrapper" id="canvasWrapper">
+          <canvas id="canvas" width="900" height="400" aria-label="Write equations. Use the Hand tool to move around the infinite canvas."></canvas>
+          <output id="canvasAnswer" aria-label="Calculated answer" aria-live="polite" hidden></output>
+          <div id="eraserCursor" aria-hidden="true" hidden></div>
+        </div>
       </div>
-    </div>
 
-    <!-- Buttons -->
-    <div class="controls">
-      <button id="undoBtn" type="button" aria-label="Undo last action"
-        aria-keyshortcuts="Control+Z Meta+Z" title="Undo (Ctrl/Cmd+Z; last 100 actions)" disabled>
-        <span aria-hidden="true">↶</span> Undo
-      </button>
-      <button id="redoBtn" type="button" aria-label="Redo last action"
-        aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z"
-        title="Redo (Ctrl/Cmd+Shift+Z; Ctrl+Y on Windows)" disabled>
-        <span aria-hidden="true">↷</span> Redo
-      </button>
-      <button id="clearBtn" type="button" aria-label="Clear drawing" title="Clear drawing (undoable)">
-        🗑️ Clear
-      </button>
-    </div>
-
-    <!-- Where the result shows up -->
-    <div class="result-box" id="resultBox">
-      <span id="answer">Loading model...</span>
-      <canvas id="preview"></canvas>
-    </div>
-
-    <section class="calculation-history" aria-labelledby="historyHeading">
-      <div class="history-heading">
-        <h2 id="historyHeading">Calculation history</h2>
-        <span id="historyCount" aria-label="History entries out of 10">0 / 10</span>
-      </div>
-      <p class="history-note">Latest calculations, newest first · This session</p>
-      <p id="historyEmpty">Your equations and answers will appear here.</p>
-      <ol id="calculationHistory" aria-label="Previous calculations, newest first"></ol>
-    </section>
-
+      <footer class="workspace-footer">
+        <div class="controls" role="group" aria-label="Drawing actions">
+          <button id="undoBtn" type="button" aria-label="Undo last action" aria-keyshortcuts="Control+Z Meta+Z" title="Undo (Ctrl/Cmd+Z; last 100 actions)" disabled><span aria-hidden="true">↶</span> Undo</button>
+          <button id="redoBtn" type="button" aria-label="Redo last action" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" title="Redo (Ctrl/Cmd+Shift+Z; Ctrl+Y on Windows)" disabled><span aria-hidden="true">↷</span> Redo</button>
+          <button id="clearBtn" type="button" aria-label="Clear all ink" title="Clear all ink (undoable)"><span aria-hidden="true">⌫</span> Clear</button>
+        </div>
+        <p class="navigation-hint">Space + drag to move · Ctrl + scroll to zoom</p>
+        <div class="zoom-controls" role="group" aria-label="Canvas view">
+          <button id="zoomOutBtn" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+          <output id="zoomValue" aria-label="Zoom level">100%</output>
+          <button id="zoomInBtn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+          <button id="resetViewBtn" type="button" aria-label="Return to canvas origin" title="Reset view">⌂</button>
+        </div>
+      </footer>
+    </main>
   </div>
 
+  <dialog id="historyPanel" aria-labelledby="historyHeading">
+    <div class="history-heading">
+      <h2 id="historyHeading">Calculation history</h2>
+      <button id="closeHistoryBtn" type="button" aria-label="Close history" title="Close history">×</button>
+    </div>
+    <div class="history-meta"><p>Latest calculations · This session</p><span id="historyCount" aria-label="History entries out of 10">0 / 10</span></div>
+    <p id="historyEmpty">Your equations and answers will appear here.</p>
+    <ol id="calculationHistory" aria-label="Previous calculations, newest first"></ol>
+  </dialog>
+  <canvas id="preview" hidden></canvas>
   <script>
-    // Local files cannot load the app's module worker and model assets.
-    if (location.protocol === "file:") {
-      document.getElementById("answer").textContent =
-        "Start CalcInk with npm run dev, then open http://localhost:5173/frontend/index.html";
-    }
+    if (location.protocol === 'file:') document.getElementById('answer').textContent = 'Run npm run dev to open CalcInk.';
   </script>
   <script type="module" src="../backend/app.js"></script>
 </body>
-
 </html>
