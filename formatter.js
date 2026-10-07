@@ -1,8 +1,11 @@
 // Convert LaTeX into arithmetic text for evaluate.cpp.
 export function formatLatex(latex) {
   let expression = latex.replace(/\s/g, "");
-  // Normalize repeated terminal equals signs.
-  expression = expression.replace(/={2,}$/, "=");
+  // Keep the expression through the first equals sign.
+  const equalPosition = expression.indexOf("=");
+  if (equalPosition !== -1) {
+    expression = expression.slice(0, equalPosition + 1);
+  }
   expression = expression.replace(/\\times/g, "*");
   expression = expression.replace(/\\div/g, "/");
   expression = expression.replace(/×/g, "*");
