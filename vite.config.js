@@ -1,0 +1,36 @@
+import { defineConfig } from "vite";
+import { cpSync, copyFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
+
+export default defineConfig({
+  worker: {
+    format: "es"
+  },
+
+  build: {
+    outDir: "dist",
+    rollupOptions: {
+      input: resolve(projectRoot, "frontend/index.html")
+    }
+  },
+
+  plugins: [{
+    name: "calcink-deployment-files",
+
+    closeBundle() {
+      copyFileSync(
+        resolve(projectRoot, "dist/frontend/index.html"),
+        resolve(projectRoot, "dist/index.html")
+      );
+
+      cpSync(
+        resolve(projectRoot, "models"),
+        resolve(projectRoot, "dist/models"),
+        { recursive: true }
+      );
+    }
+  }]
+});

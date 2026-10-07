@@ -4,6 +4,7 @@
   "description": "",
   "main": "evaluate.js",
   "scripts": {
+    "build": "vite build",
     "dev": "vite --open /frontend/index.html",
     "test": "node --experimental-vm-modules --test tests/*.test.js"
   },
