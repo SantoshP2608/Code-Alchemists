@@ -16,6 +16,11 @@ let nextRequestId = 1;
 let activeRecognition = null;
 
 function equationAt(point) {
+    // Pointer coordinates are converted to world space. Convert the fixed
+    // spacing tolerances too, so the same visible writing groups identically
+    // at every zoom and responsive canvas width. Bounds and saved ink stay in
+    // world space; navigation never reassigns existing equation memberships.
+    const worldPerPixel = 1 / viewportScale();
     let best = null, distance = Infinity;
     for (const equation of equations.values()) {
         if (!equation.strokes.length) continue;
@@ -29,8 +34,8 @@ function equationAt(point) {
         const horizontalGap = Math.max(left - point.x, point.x - right, 0);
         // A completed equation's right edge starts a new equation, rather than
         // absorbing another equation written alongside its displayed answer.
-        if (equation.expression && point.x > right + 24) continue;
-        if (verticalGap > Math.max(18, height * 0.35) || horizontalGap > Math.max(80, Math.min(120, height * 1.1))) continue;
+        if (equation.expression && point.x > right + 24 * worldPerPixel) continue;
+        if (verticalGap > Math.max(18 * worldPerPixel, height * 0.35) || horizontalGap > Math.max(80 * worldPerPixel, Math.min(120 * worldPerPixel, height * 1.1))) continue;
         const score = horizontalGap + Math.abs(point.y - (top + bottom) / 2);
         if (score < distance) { best = equation; distance = score; }
     }
@@ -1022,6 +1027,9 @@ function finishStroke(event) {
         if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
         updateCursor();
         updateHistoryButtons();
+        // A timer or worker reply may have arrived while dragging the view.
+        // Resume dirty equations rather than waiting for another ink edit.
+        if (recognitionPending) scheduleRecognition();
         return;
     }
     if (erasingPointer === event.pointerId) {
