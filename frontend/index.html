@@ -1,25 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CalcInk — Draw & Calculate</title>
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
 
   <div class="container">
     <h1>🖊️ CalcInk</h1>
     <p class="subtitle">Draw your math expression below</p>
 
-    <!-- The drawing area -->
-    <div class="canvas-wrapper">
-      <canvas id="canvas" width="900" height="400"></canvas>
+    <div class="tool-bar">
+      <button id="pencilBtn" class="tool-btn active" type="button" title="Pencil" aria-label="Pencil"
+        aria-pressed="true">
+        ✏️
+      </button>
+
+      <button id="eraserBtn" class="tool-btn" type="button" title="Eraser" aria-label="Eraser" aria-pressed="false">
+        🧽
+      </button>
+
+      <select id="eraserMode" aria-label="Eraser mode" title="Eraser mode">
+        <option value="stroke">Stroke</option>
+        <option value="pixel">Pixel</option>
+      </select>
+    </div>
+
+    <div class="drawing-area">
+      <div class="size-control">
+        <label for="sizeSlider">Size</label>
+
+        <input id="sizeSlider" type="range" min="1" max="20" value="5" step="1">
+
+        <output id="sizeValue" for="sizeSlider">5</output>
+      </div>
+
+      <div class="canvas-wrapper">
+        <canvas id="canvas" width="900" height="400"></canvas>
+      </div>
     </div>
 
     <!-- Buttons -->
     <div class="controls">
-      <button id="clearBtn">🗑️ Clear</button>
+      <button id="clearBtn" type="button">
+        🗑️ Clear
+      </button>
     </div>
 
     <!-- Where the result shows up -->
@@ -32,4 +61,5 @@
 
   <script type="module" src="../backend/app.js"></script>
 </body>
+
 </html>

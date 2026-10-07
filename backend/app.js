@@ -7,20 +7,158 @@ const display = document.getElementById("answer");
 const strokes = [];
 const logicalWidth = 900;
 const logicalHeight = 400;
+
 let currentStroke = null;
+let activeTool = "pencil";
+let erasingPointer = null;
+let lastEraserPoint = null;
+
+let eraserMode = "stroke";
+
+const eraserModeSelect = document.getElementById("eraserMode");
+
+eraserModeSelect.addEventListener("change", function () {
+    if (currentStroke || erasingPointer !== null) {
+        eraserModeSelect.value = eraserMode;
+        return;
+    }
+
+    eraserMode = eraserModeSelect.value;
+    selectTool("eraser");
+});
+
+let pencilWidth = 5;
+let eraserRadius = 12;
+
+const sizeSlider = document.getElementById("sizeSlider");
+const sizeValue = document.getElementById("sizeValue");
+
+function syncSizeControl() {
+    const pencil = activeTool === "pencil";
+
+    sizeSlider.min = pencil ? "1" : "8";
+    sizeSlider.max = pencil ? "20" : "80";
+    sizeSlider.value = String(
+        pencil ? pencilWidth : eraserRadius * 2
+    );
+
+    sizeSlider.setAttribute(
+        "aria-label",
+        pencil ? "Pencil thickness" : "Eraser size"
+    );
+
+    sizeValue.textContent = sizeSlider.value;
+}
+
+function updateCursor() {
+    let svg;
+    let hotspotX;
+    let hotspotY;
+
+    if (activeTool === "pencil") {
+        svg = `
+          <svg xmlns="http://www.w3.org/2000/svg"
+               width="32" height="32" viewBox="0 0 32 32">
+            <path
+              d="M4 26 L7 17 L22 2 Q24 0 26 2
+                 L29 5 Q31 7 29 9 L14 24 Z"
+              fill="#b5a1ff" stroke="#15121c"
+              stroke-width="2"/>
+            <path d="M7 17 L14 24 L4 26 Z"
+              fill="#fff4d6" stroke="#15121c"
+              stroke-width="1.5"/>
+            <path d="M4 26 L9 25 L5 21 Z"
+              fill="#15121c"/>
+            <path d="M19 5 L26 12"
+              stroke="#ffffff" stroke-width="2"/>
+          </svg>`;
+
+        hotspotX = 4;
+        hotspotY = 26;
+    } else {
+        const scale =
+            canvas.getBoundingClientRect().width / logicalWidth;
+
+        const radius = Math.max(2, eraserRadius * scale);
+        const side = Math.ceil(radius * 2 + 8);
+        const center = Math.floor(side / 2);
+
+        svg = `
+          <svg xmlns="http://www.w3.org/2000/svg"
+               width="${side}" height="${side}">
+            <circle cx="${center}" cy="${center}" r="${radius}"
+              fill="#b5a1ff" fill-opacity="0.12"
+              stroke="#111018" stroke-width="4"/>
+            <circle cx="${center}" cy="${center}" r="${radius}"
+              fill="none" stroke="#e6dcff" stroke-width="2"/>
+          </svg>`;
+
+        hotspotX = center;
+        hotspotY = center;
+    }
+
+    canvas.style.cursor =
+        `url("data:image/svg+xml,${encodeURIComponent(svg)}") ` +
+        `${hotspotX} ${hotspotY}, default`;
+}
+
+sizeSlider.addEventListener("input", function () {
+    if (currentStroke || erasingPointer !== null) {
+        syncSizeControl();
+        return;
+    }
+
+    const size = Number(sizeSlider.value);
+
+    if (activeTool === "pencil") {
+        pencilWidth = size;
+    } else {
+        eraserRadius = size / 2;
+    }
+
+    sizeValue.textContent = String(size);
+    updateCursor();
+});
+const pencilBtn = document.getElementById("pencilBtn");
+const eraserBtn = document.getElementById("eraserBtn");
+
+function selectTool(tool) {
+    if (currentStroke || erasingPointer !== null) return;
+
+    activeTool = tool;
+
+    for (const [button, name] of [
+        [pencilBtn, "pencil"],
+        [eraserBtn, "eraser"]
+    ]) {
+        const selected = tool === name;
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-pressed", String(selected));
+    }
+
+    syncSizeControl();
+    updateCursor();
+}
+
+pencilBtn.addEventListener("click", () => selectTool("pencil"));
+eraserBtn.addEventListener("click", () => selectTool("eraser"));
+selectTool("pencil");
+
 let drawingVersion = 0;
 let recognitionTimer;
 let recognitionBusy = false;
 let modelReady = false;
 let evaluator;
 
-// Heavy recognition and preprocessing run outside this drawing thread.
-const worker = new Worker(new URL("./recognition.worker.js", import.meta.url), {
-    type: "module"
-});
+// Recognition and preprocessing run outside the drawing thread.
+const worker = new Worker(
+    new URL("./recognition.worker.js", import.meta.url),
+    { type: "module" }
+);
 
 createEvaluator().then(function (module) {
     evaluator = module;
+
     if (modelReady) {
         display.textContent = "Handwriting model ready";
         scheduleRecognition();
@@ -31,12 +169,17 @@ createEvaluator().then(function (module) {
 
 function showAnswer(latex) {
     console.log("Model output:", latex);
+
     try {
         const expression = formatLatex(latex);
         console.log("Formatted:", expression);
-        display.textContent = expression === null ? "" : evaluator.calculate(expression);
+
+        display.textContent = expression === null
+            ? ""
+            : evaluator.calculate(expression);
     } catch (error) {
-        display.textContent = "Recognized: " + latex + " — " + error.message;
+        display.textContent =
+            "Recognized: " + latex + " — " + error.message;
     }
 }
 
@@ -49,16 +192,25 @@ function drawDot(point, width) {
 function drawStroke(stroke) {
     const points = stroke.points;
     if (!points.length) return;
+
     context.lineWidth = stroke.lineWidth;
     drawDot(points[0], stroke.lineWidth);
+
     context.beginPath();
     context.moveTo(points[0].x, points[0].y);
+
     for (let i = 1; i < points.length; i++) {
         const previous = points[i - 1];
         const point = points[i];
-        context.quadraticCurveTo(previous.x, previous.y,
-            (previous.x + point.x) / 2, (previous.y + point.y) / 2);
+
+        context.quadraticCurveTo(
+            previous.x,
+            previous.y,
+            (previous.x + point.x) / 2,
+            (previous.y + point.y) / 2
+        );
     }
+
     const last = points[points.length - 1];
     context.lineTo(last.x, last.y);
     context.stroke();
@@ -67,17 +219,29 @@ function drawStroke(stroke) {
 function resizeCanvas() {
     const rectangle = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
+
     canvas.width = Math.round(rectangle.width * ratio);
     canvas.height = Math.round(rectangle.height * ratio);
-    context.setTransform(canvas.width / logicalWidth, 0, 0,
-        canvas.height / logicalHeight, 0, 0);
+
+    context.setTransform(
+        canvas.width / logicalWidth,
+        0,
+        0,
+        canvas.height / logicalHeight,
+        0,
+        0
+    );
+
     context.strokeStyle = "#ffffff";
     context.fillStyle = "#ffffff";
-    context.lineWidth = 5;
+    context.lineWidth = pencilWidth;
     context.lineCap = "round";
     context.lineJoin = "round";
+
     for (const stroke of strokes) drawStroke(stroke);
     if (currentStroke) drawStroke(currentStroke);
+
+    updateCursor();
 }
 
 resizeCanvas();
@@ -85,63 +249,388 @@ new ResizeObserver(resizeCanvas).observe(canvas);
 
 function getPoint(event) {
     const rectangle = canvas.getBoundingClientRect();
+
     return {
-        x: (event.clientX - rectangle.left) * logicalWidth / rectangle.width,
-        y: (event.clientY - rectangle.top) * logicalHeight / rectangle.height
+        x: (event.clientX - rectangle.left)
+            * logicalWidth / rectangle.width,
+        y: (event.clientY - rectangle.top)
+            * logicalHeight / rectangle.height
     };
 }
 
+function clearPreview() {
+    const preview = document.getElementById("preview");
+
+    preview.getContext("2d").clearRect(
+        0, 0, preview.width, preview.height
+    );
+}
+
+function redrawInk() {
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.restore();
+
+    for (const stroke of strokes) drawStroke(stroke);
+}
+
+function pointSegmentDistance(point, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSquared = dx * dx + dy * dy;
+
+    const t = lengthSquared === 0
+        ? 0
+        : Math.max(0, Math.min(1,
+            ((point.x - a.x) * dx + (point.y - a.y) * dy)
+            / lengthSquared
+        ));
+
+    return Math.hypot(
+        point.x - a.x - t * dx,
+        point.y - a.y - t * dy
+    );
+}
+
+// Test against the same quadratic curves used to draw the stroke.
+function strokeTouchesPoint(stroke, point) {
+    const points = stroke.points;
+    if (!points.length) return false;
+
+    const radius = eraserRadius + stroke.lineWidth / 2;
+    let start = points[0];
+
+    if (Math.hypot(
+        point.x - start.x,
+        point.y - start.y
+    ) <= radius) {
+        return true;
+    }
+
+    for (let i = 1; i < points.length; i++) {
+        const control = points[i - 1];
+
+        const end = {
+            x: (control.x + points[i].x) / 2,
+            y: (control.y + points[i].y) / 2
+        };
+
+        const steps = Math.max(4, Math.ceil((
+            Math.hypot(
+                control.x - start.x,
+                control.y - start.y
+            ) +
+            Math.hypot(
+                end.x - control.x,
+                end.y - control.y
+            )
+        ) / 4));
+
+        let previous = start;
+
+        for (let j = 1; j <= steps; j++) {
+            const t = j / steps;
+            const u = 1 - t;
+
+            const sample = {
+                x: u * u * start.x
+                    + 2 * u * t * control.x
+                    + t * t * end.x,
+                y: u * u * start.y
+                    + 2 * u * t * control.y
+                    + t * t * end.y
+            };
+
+            if (pointSegmentDistance(
+                point, previous, sample
+            ) <= radius) {
+                return true;
+            }
+
+            previous = sample;
+        }
+
+        start = end;
+    }
+
+    return pointSegmentDistance(
+        point, start, points[points.length - 1]
+    ) <= radius;
+}
+
+// Convert the displayed curve into closely spaced points.
+function flattenStroke(stroke) {
+    const points = stroke.points;
+
+    if (points.length < 2) return points.slice();
+
+    const result = [points[0]];
+    let start = points[0];
+
+    for (let i = 1; i < points.length; i++) {
+        const control = points[i - 1];
+
+        const end = {
+            x: (control.x + points[i].x) / 2,
+            y: (control.y + points[i].y) / 2
+        };
+
+        const length =
+            Math.hypot(control.x - start.x, control.y - start.y) +
+            Math.hypot(end.x - control.x, end.y - control.y);
+
+        const steps = Math.max(1, Math.ceil(length / 2));
+
+        for (let j = 1; j <= steps; j++) {
+            const t = j / steps;
+            const u = 1 - t;
+
+            result.push({
+                x: u * u * start.x +
+                    2 * u * t * control.x +
+                    t * t * end.x,
+
+                y: u * u * start.y +
+                    2 * u * t * control.y +
+                    t * t * end.y
+            });
+        }
+
+        start = end;
+    }
+
+    const last = points[points.length - 1];
+
+    const steps = Math.max(1, Math.ceil(
+        Math.hypot(last.x - start.x, last.y - start.y) / 2
+    ));
+
+    for (let j = 1; j <= steps; j++) {
+        result.push({
+            x: start.x + (last.x - start.x) * j / steps,
+            y: start.y + (last.y - start.y) * j / steps
+        });
+    }
+
+    return result;
+}
+
+// Keep separate fragments so erased gaps are not reconnected.
+function pixelEraseStroke(stroke, center) {
+    const points = flattenStroke(stroke);
+    const radius = eraserRadius + stroke.lineWidth / 2;
+
+    const fragments = [];
+    let remaining = [];
+
+    function saveFragment() {
+        if (remaining.length) {
+            fragments.push({
+                points: remaining,
+                lineWidth: stroke.lineWidth
+            });
+
+            remaining = [];
+        }
+    }
+
+    for (const point of points) {
+        const distance = Math.hypot(
+            point.x - center.x,
+            point.y - center.y
+        );
+
+        if (distance <= radius) {
+            saveFragment();
+        } else {
+            remaining.push(point);
+        }
+    }
+
+    saveFragment();
+    return fragments;
+}
+
+function eraseTo(point) {
+    const from = lastEraserPoint || point;
+
+    const steps = Math.max(1, Math.ceil(
+        Math.hypot(point.x - from.x, point.y - from.y) / 4
+    ));
+
+    let changed = false;
+
+    // Sweep between events so fast drags do not skip strokes.
+    for (let step = 0; step <= steps; step++) {
+        const t = step / steps;
+
+        const sample = {
+            x: from.x + (point.x - from.x) * t,
+            y: from.y + (point.y - from.y) * t
+        };
+
+        for (let i = strokes.length - 1; i >= 0; i--) {
+            if (strokeTouchesPoint(strokes[i], sample)) {
+                if (eraserMode === "pixel") {
+                    const fragments = pixelEraseStroke(strokes[i], sample);
+                    strokes.splice(i, 1, ...fragments);
+                } else {
+                    strokes.splice(i, 1);
+                }
+
+                changed = true;
+            }
+        }
+    }
+
+    lastEraserPoint = point;
+
+    if (changed) {
+        drawingVersion += 1;
+        display.textContent = "";
+        clearPreview();
+        redrawInk();
+    }
+}
+
 canvas.addEventListener("pointerdown", function (event) {
-    if (currentStroke !== null || event.button !== 0) return;
+    if (
+        currentStroke !== null ||
+        erasingPointer !== null ||
+        event.button !== 0
+    ) {
+        return;
+    }
+
+    event.preventDefault();
     clearTimeout(recognitionTimer);
+
     drawingVersion += 1;
     display.textContent = "";
+
     canvas.setPointerCapture(event.pointerId);
+
     const point = getPoint(event);
+
+    if (activeTool === "eraser") {
+        erasingPointer = event.pointerId;
+        lastEraserPoint = null;
+        eraseTo(point);
+        return;
+    }
+
     currentStroke = {
-        pointerId: event.pointerId, points: [point], lineWidth: 5,
-        drawX: point.x, drawY: point.y
+        pointerId: event.pointerId,
+        points: [point],
+        lineWidth: pencilWidth,
+        drawX: point.x,
+        drawY: point.y
     };
-    drawDot(point, 5);
+
+    context.lineWidth = pencilWidth;
+    drawDot(point, pencilWidth);
 });
 
 function addPoint(event) {
     const point = getPoint(event);
-    const previous = currentStroke.points[currentStroke.points.length - 1];
+    const previous =
+        currentStroke.points[currentStroke.points.length - 1];
+
     if (point.x === previous.x && point.y === previous.y) return;
+
     const midX = (previous.x + point.x) / 2;
     const midY = (previous.y + point.y) / 2;
+
     context.lineWidth = currentStroke.lineWidth;
     context.beginPath();
     context.moveTo(currentStroke.drawX, currentStroke.drawY);
-    context.quadraticCurveTo(previous.x, previous.y, midX, midY);
+    context.quadraticCurveTo(
+        previous.x, previous.y, midX, midY
+    );
     context.stroke();
+
     currentStroke.points.push(point);
     currentStroke.drawX = midX;
     currentStroke.drawY = midY;
 }
 
 canvas.addEventListener("pointermove", function (event) {
-    if (!currentStroke || currentStroke.pointerId !== event.pointerId) return;
-    const samples = event.getCoalescedEvents ? event.getCoalescedEvents() : [];
+    if (erasingPointer === event.pointerId) {
+        event.preventDefault();
+
+        const samples = event.getCoalescedEvents
+            ? event.getCoalescedEvents()
+            : [];
+
+        for (const sample of samples) eraseTo(getPoint(sample));
+        eraseTo(getPoint(event));
+        return;
+    }
+
+    if (!currentStroke ||
+        currentStroke.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const samples = event.getCoalescedEvents
+        ? event.getCoalescedEvents()
+        : [];
+
     for (const sample of samples) addPoint(sample);
     addPoint(event);
 });
 
 function finishStroke(event) {
-    if (!currentStroke || currentStroke.pointerId !== event.pointerId) return;
+    if (erasingPointer === event.pointerId) {
+        if (event.type === "pointerup") eraseTo(getPoint(event));
+
+        erasingPointer = null;
+        lastEraserPoint = null;
+
+        if (canvas.hasPointerCapture(event.pointerId)) {
+            canvas.releasePointerCapture(event.pointerId);
+        }
+
+        if (!strokes.length) {
+            clearPreview();
+
+            display.textContent = modelReady && evaluator
+                ? "Handwriting model ready"
+                : "Loading...";
+        }
+
+        scheduleRecognition();
+        return;
+    }
+
+    if (!currentStroke ||
+        currentStroke.pointerId !== event.pointerId) {
+        return;
+    }
+
     if (event.type === "pointerup") addPoint(event);
-    const last = currentStroke.points[currentStroke.points.length - 1];
+
+    const last =
+        currentStroke.points[currentStroke.points.length - 1];
+
     context.beginPath();
     context.moveTo(currentStroke.drawX, currentStroke.drawY);
     context.lineTo(last.x, last.y);
     context.stroke();
-    strokes.push({ points: currentStroke.points, lineWidth: currentStroke.lineWidth });
+
+    strokes.push({
+        points: currentStroke.points,
+        lineWidth: currentStroke.lineWidth
+    });
+
     currentStroke = null;
     drawingVersion += 1;
+
     if (canvas.hasPointerCapture(event.pointerId)) {
         canvas.releasePointerCapture(event.pointerId);
     }
+
     scheduleRecognition();
 }
 
@@ -150,9 +639,17 @@ canvas.addEventListener("pointercancel", finishStroke);
 
 function scheduleRecognition() {
     clearTimeout(recognitionTimer);
+
     recognitionTimer = setTimeout(function () {
-        if (!modelReady || !evaluator || recognitionBusy || !strokes.length) return;
-        if (currentStroke) return;
+        if (!modelReady ||
+            !evaluator ||
+            recognitionBusy ||
+            !strokes.length) {
+            return;
+        }
+
+        if (currentStroke || erasingPointer !== null) return;
+
         recognitionBusy = true;
         worker.postMessage({ strokes, version: drawingVersion });
     }, 600);
@@ -160,35 +657,56 @@ function scheduleRecognition() {
 
 worker.onmessage = function (event) {
     const message = event.data;
+
     if (message.type === "ready") {
         modelReady = true;
+
         if (evaluator) {
             display.textContent = "Handwriting model ready";
             scheduleRecognition();
         }
-        return;
-    }
-    if (message.type === "init-error") {
-        display.textContent = "Model failed to load: " + message.message;
+
         return;
     }
 
-    const isCurrent = message.version === drawingVersion && !currentStroke;
+    if (message.type === "init-error") {
+        display.textContent =
+            "Model failed to load: " + message.message;
+        return;
+    }
+
+    const isCurrent =
+        message.version === drawingVersion &&
+        !currentStroke &&
+        erasingPointer === null;
+
     if (message.type === "preview") {
         if (isCurrent) {
             const preview = document.getElementById("preview");
+
             preview.width = message.width;
             preview.height = message.height;
+
             preview.getContext("2d").putImageData(
-                new ImageData(message.pixels, message.width, message.height), 0, 0);
+                new ImageData(
+                    message.pixels, message.width, message.height
+                ),
+                0, 0
+            );
         }
+
         return;
     }
 
     recognitionBusy = false;
+
     if (isCurrent) {
-        if (message.type === "result") showAnswer(message.latex);
-        else display.textContent = "Recognition failed: " + message.message;
+        if (message.type === "result") {
+            showAnswer(message.latex);
+        } else {
+            display.textContent =
+                "Recognition failed: " + message.message;
+        }
     } else {
         scheduleRecognition();
     }
@@ -197,31 +715,39 @@ worker.onmessage = function (event) {
 worker.onerror = function (event) {
     modelReady = false;
     recognitionBusy = false;
-    display.textContent = "Recognition worker failed: " + event.message;
+
+    display.textContent =
+        "Recognition worker failed: " + event.message;
 };
 
-document.getElementById("clearBtn").addEventListener("click", function () {
-    clearTimeout(recognitionTimer);
+document.getElementById("clearBtn").addEventListener(
+    "click",
+    function () {
+        clearTimeout(recognitionTimer);
 
-    // Invalidate any recognition result still being processed.
-    drawingVersion += 1;
+        // Ignore results from recognition started before clearing.
+        drawingVersion += 1;
 
-    if (currentStroke && canvas.hasPointerCapture(currentStroke.pointerId)) {
-        canvas.releasePointerCapture(currentStroke.pointerId);
+        if (currentStroke &&
+            canvas.hasPointerCapture(currentStroke.pointerId)) {
+            canvas.releasePointerCapture(currentStroke.pointerId);
+        }
+
+        if (erasingPointer !== null &&
+            canvas.hasPointerCapture(erasingPointer)) {
+            canvas.releasePointerCapture(erasingPointer);
+        }
+
+        erasingPointer = null;
+        lastEraserPoint = null;
+        currentStroke = null;
+        strokes.length = 0;
+
+        resizeCanvas();
+        clearPreview();
+
+        display.textContent = modelReady && evaluator
+            ? "Handwriting model ready"
+            : "Loading...";
     }
-
-    currentStroke = null;
-    strokes.length = 0;
-
-    // Clear and restore the drawing canvas.
-    resizeCanvas();
-
-    const preview = document.getElementById("preview");
-    preview.getContext("2d").clearRect(
-        0, 0, preview.width, preview.height
-    );
-
-    display.textContent = modelReady && evaluator
-        ? "Handwriting model ready"
-        : "Loading...";
-});
+);
