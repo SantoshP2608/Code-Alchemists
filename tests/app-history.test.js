@@ -1190,7 +1190,31 @@ test("equally sized visible handwriting gets equally sized answers at 100% and 2
         assert.equal(app.canvasAnswer.hidden, false);
         return parseFloat(app.canvasAnswer.style.fontSize);
     }
-    assert.equal(await answerSize(true), await answerSize(false));
+    const normalSize = await answerSize(false);
+    const zoomedSize = await answerSize(true);
+    // Brush width also scales with zoom, so visible ink bounds differ slightly.
+    assert.ok(Math.abs(normalSize - zoomedSize) / normalSize < 0.05);
+});
+
+test("answer size stays proportional to large visible handwriting at different zoom levels", async () => {
+    for (const zoomedOut of [false, true]) {
+        const sizes = [];
+        for (const height of [100, 180]) {
+            const app = await setup({ loadEvaluator: async () => ({ calculate: () => "31" }) });
+            if (zoomedOut) {
+                app.canvas.emit("wheel", { ctrlKey: true, deltaY: 10000,
+                    clientX: 450, clientY: 200 });
+            }
+            drawLine(app, 100, 80, 100, 80 + height);
+            app.tick();
+            app.message({ type: "result", version: app.worker.requests[0].version, latex: "35-4=" });
+            const fontSize = parseFloat(app.canvasAnswer.style.fontSize);
+            // The font's digit glyph is shorter than its CSS font size.
+            assert.ok(fontSize >= height * 1.2 && fontSize <= height * 1.28);
+            sizes.push(fontSize);
+        }
+        assert.ok(sizes[1] / sizes[0] > 1.7);
+    }
 });
 
 test("existing answers remain readable when zooming out on a narrow viewport", async () => {
