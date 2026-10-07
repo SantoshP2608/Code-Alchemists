@@ -14,7 +14,7 @@
 
     <!-- The drawing area -->
     <div class="canvas-wrapper">
-      <canvas id="drawCanvas" width="700" height="180"></canvas>
+      <canvas id="canvas" width="900" height="400"></canvas>
     </div>
 
     <!-- Buttons -->
@@ -24,11 +24,12 @@
 
     <!-- Where the result shows up -->
     <div class="result-box" id="resultBox">
-      <span id="resultText">Draw something and hit Solve!</span>
+      <span id="answer">Loading model...</span>
+      <canvas id="preview"></canvas>
     </div>
 
   </div>
 
-  <script src="script.js"></script>
+  <script type="module" src="../backend/app.js"></script>
 </body>
 </html>

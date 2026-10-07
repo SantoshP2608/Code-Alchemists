@@ -11,10 +11,10 @@ let vocab;
 
 async function initialize() {
     try {
-        vocab = await loadVocab("/models/comer/vocab.json");
+        vocab = await loadVocab("/models/vocab.json");
         engine = new InferenceEngine({
-            encoderUrl: "/models/comer/encoder_int8.onnx",
-            decoderUrl: "/models/comer/decoder_int8.onnx",
+            encoderUrl: "/models/encoder_int8.onnx",
+            decoderUrl: "/models/decoder_int8.onnx",
             executionProvider: "wasm"
         });
         await engine.init();

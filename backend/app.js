@@ -71,6 +71,8 @@ function resizeCanvas() {
     canvas.height = Math.round(rectangle.height * ratio);
     context.setTransform(canvas.width / logicalWidth, 0, 0,
         canvas.height / logicalHeight, 0, 0);
+    context.strokeStyle = "#ffffff";
+    context.fillStyle = "#ffffff";
     context.lineWidth = 5;
     context.lineCap = "round";
     context.lineJoin = "round";
@@ -197,3 +199,29 @@ worker.onerror = function (event) {
     recognitionBusy = false;
     display.textContent = "Recognition worker failed: " + event.message;
 };
+
+document.getElementById("clearBtn").addEventListener("click", function () {
+    clearTimeout(recognitionTimer);
+
+    // Invalidate any recognition result still being processed.
+    drawingVersion += 1;
+
+    if (currentStroke && canvas.hasPointerCapture(currentStroke.pointerId)) {
+        canvas.releasePointerCapture(currentStroke.pointerId);
+    }
+
+    currentStroke = null;
+    strokes.length = 0;
+
+    // Clear and restore the drawing canvas.
+    resizeCanvas();
+
+    const preview = document.getElementById("preview");
+    preview.getContext("2d").clearRect(
+        0, 0, preview.width, preview.height
+    );
+
+    display.textContent = modelReady && evaluator
+        ? "Handwriting model ready"
+        : "Loading...";
+});
