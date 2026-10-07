@@ -168,6 +168,42 @@ button:disabled { opacity: .45; cursor: default; }
 
 #preview { display: none; }
 
+.calculation-history {
+  margin-top: 24px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  text-align: left;
+}
+
+.history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-heading h2 { font-size: 1rem; font-weight: 600; }
+#historyCount { flex-shrink: 0; color: var(--accent); font-size: .85rem; }
+.history-note, #historyEmpty { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.history-note { margin-top: 6px; }
+#historyEmpty { margin-top: 16px; }
+#calculationHistory { list-style: none; }
+#calculationHistory li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+}
+#calculationHistory li:last-child { border-bottom: 0; padding-bottom: 0; }
+#calculationHistory span, #calculationHistory strong { min-width: 0; overflow-wrap: anywhere; }
+#calculationHistory span { flex: 1; }
+#calculationHistory strong { max-width: 45%; color: var(--accent); text-align: right; }
+
 @media (hover: hover) {
   .tool-bar .tool-btn:hover { background: #32303f; border-color: #5f567a; }
   .tool-bar .tool-btn.active:hover,
@@ -181,6 +217,7 @@ button:disabled { opacity: .45; cursor: default; }
   .subtitle { margin-bottom: 24px; font-size: .9rem; }
   .canvas-wrapper { border-radius: 14px; }
   .result-box { margin-top: 20px; padding: 16px; }
+  .calculation-history { margin-top: 20px; padding: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

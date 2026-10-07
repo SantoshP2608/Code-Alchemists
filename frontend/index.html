@@ -66,6 +66,16 @@
       <canvas id="preview"></canvas>
     </div>
 
+    <section class="calculation-history" aria-labelledby="historyHeading">
+      <div class="history-heading">
+        <h2 id="historyHeading">Calculation history</h2>
+        <span id="historyCount" aria-label="History entries out of 10">0 / 10</span>
+      </div>
+      <p class="history-note">Latest calculations, newest first · This session</p>
+      <p id="historyEmpty">Your equations and answers will appear here.</p>
+      <ol id="calculationHistory" aria-label="Previous calculations, newest first"></ol>
+    </section>
+
   </div>
 
   <script>

@@ -30,6 +30,9 @@ async function setup({
         ].map(name => [name, (...args) => calls.push({ name, args })]));
         return {
             textContent: "Loading model...", disabled: false,
+            children: [], hidden: false,
+            append(...children) { this.children.push(...children); },
+            replaceChildren(...children) { this.children = children; },
             value: "", style: {},
             setAttribute: (name, value) => attributes.set(name, value),
             getAttribute: name => attributes.get(name),
@@ -61,9 +64,13 @@ async function setup({
     }
     const elements = Object.fromEntries([
         "canvas", "answer", "preview", "undoBtn", "redoBtn", "clearBtn",
-        "pencilBtn", "eraserBtn", "eraserMode", "sizeSlider", "sizeValue"
+        "pencilBtn", "eraserBtn", "eraserMode", "sizeSlider", "sizeValue",
+        "calculationHistory", "historyEmpty", "historyCount"
     ].map(id => [id, element()]));
-    const document = { ...element(), getElementById: id => elements[id] };
+    elements.historyCount.textContent = "0 / 10";
+    const document = {
+        ...element(), getElementById: id => elements[id], createElement: () => element()
+    };
     const context = vm.createContext({
         document, navigator: { platform },
         window: { devicePixelRatio: 2 }, URL,
@@ -109,6 +116,86 @@ async function setup({
         }
     };
 }
+
+function historyRows(app) {
+    return app.calculationHistory.children.map(row => row.children.map(child => child.textContent));
+}
+
+test("calculation history pairs equations and answers, keeping only the latest 10", async () => {
+    const app = await setup({
+        format: formatLatex,
+        loadEvaluator: async () => ({ calculate: expression => String(Number(expression.split("+")[0]) * 2) })
+    });
+    assert.equal(app.historyEmpty.hidden, false);
+    for (let i = 1; i <= 12; i++) {
+        app.stroke(i, true);
+        app.tick();
+        const { version } = app.worker.requests.at(-1);
+        app.message({ type: "result", version, latex: `${i}+${i}=` });
+    }
+    assert.deepEqual(historyRows(app), Array.from({ length: 10 }, (_, index) => {
+        const value = 12 - index;
+        return [`${value}+${value} = `, String(value * 2)];
+    }));
+    assert.equal(app.historyCount.textContent, "10 / 10");
+    assert.equal(app.historyEmpty.hidden, true);
+    app.clearBtn.emit("click");
+    app.undoBtn.emit("click");
+    app.resize();
+    assert.equal(app.calculationHistory.children.length, 10);
+    app.tick();
+    app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: "12+12=" });
+    assert.deepEqual(historyRows(app).slice(0, 2), [["12+12 = ", "24"], ["12+12 = ", "24"]]);
+    assert.equal(app.calculationHistory.children.length, 10);
+    const fresh = await setup();
+    assert.equal(fresh.calculationHistory.children.length, 0);
+});
+
+test("incomplete, invalid and failed calculations do not enter calculation history", async () => {
+    const app = await setup({
+        format: formatLatex,
+        loadEvaluator: async () => ({ calculate: expression => {
+            if (expression === "7+=") return "Error: Missing operand";
+            if (expression === "8=") throw new Error("Calculation failed");
+            if (expression === "9=") return "Waiting";
+            return "Undefined";
+        } })
+    });
+    for (const latex of ["7", "x=", "7+=", "8=", "9="]) {
+        app.stroke(10, true);
+        app.tick();
+        app.message({ type: "result", version: app.worker.requests.at(-1).version, latex });
+        assert.deepEqual(historyRows(app), []);
+    }
+    app.stroke(10, true);
+    app.tick();
+    app.message({ type: "error", version: app.worker.requests.at(-1).version, message: "Inference failed" });
+    assert.deepEqual(historyRows(app), []);
+    assert.equal(app.historyEmpty.hidden, false);
+    app.stroke(10, true);
+    app.tick();
+    app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: "1/0=" });
+    assert.deepEqual(historyRows(app), [["1/0 = ", "Undefined"]]);
+});
+
+test("outdated and duplicate worker replies cannot add calculation history entries", async () => {
+    const app = await setup();
+    app.stroke(10);
+    app.tick();
+    const old = app.worker.requests.at(-1);
+    app.clearBtn.emit("click");
+    app.message({ type: "result", version: old.version, latex: "stale=" });
+    assert.deepEqual(historyRows(app), []);
+    app.undoBtn.emit("click");
+    app.tick();
+    const current = app.worker.requests.at(-1);
+    app.message({ type: "result", version: current.version, latex: "2+3=" });
+    app.message({ type: "result", version: current.version, latex: "duplicate=" });
+    app.message({ type: "result", version: old.version, latex: "stale=" });
+    assert.deepEqual(historyRows(app), [["2+3 = ", "answer:2+3="]]);
+    app.undoBtn.emit("click");
+    assert.deepEqual(historyRows(app), [["2+3 = ", "answer:2+3="]]);
+});
 
 test("completed strokes and dots undo and redo in order; active strokes disable controls", async () => {
     const app = await setup();
@@ -581,6 +668,7 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     const original = app.worker.requests[0];
     app.message({ type: "result", version: original.version, latex: "2 \\times 3 =" });
     assert.equal(app.answer.textContent, "6");
+    assert.deepEqual(historyRows(app), [["2*3 = ", "6"]]);
     app.clearBtn.emit("click");
     app.undoBtn.emit("click");
     app.tick();
@@ -595,6 +683,7 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     assert.deepEqual(redone.strokes, original.strokes);
     app.message({ type: "result", version: redone.version, latex: "\\frac{12}{4}=" });
     assert.equal(app.answer.textContent, "3");
+    assert.deepEqual(historyRows(app), [["(12)/(4) = ", "3"], ["2*3 = ", "6"], ["2*3 = ", "6"]]);
     app.stroke(100);
     app.tick();
     app.message({ type: "result", version: app.worker.requests[3].version, latex: "2+3" });

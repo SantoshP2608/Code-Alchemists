@@ -9,6 +9,8 @@ const redoBtn = document.getElementById("redoBtn");
 const strokes = [];
 const undoActions = [];
 const redoActions = [];
+const calculationHistory = [];
+const calculationHistoryLimit = 10;
 const logicalWidth = 900;
 const logicalHeight = 400;
 
@@ -182,13 +184,40 @@ function showAnswer(latex) {
         const expression = formatLatex(latex);
         console.log("Formatted:", expression);
 
-        display.textContent = expression === null
-            ? ""
-            : evaluator.calculate(expression);
+        if (expression === null) {
+            display.textContent = "";
+            return;
+        }
+
+        const answer = String(evaluator.calculate(expression));
+        display.textContent = answer;
+        if (answer !== "Waiting" && !answer.startsWith("Error:")) {
+            calculationHistory.push({ equation: expression, answer });
+            if (calculationHistory.length > calculationHistoryLimit) {
+                calculationHistory.shift();
+            }
+            renderCalculationHistory();
+        }
     } catch (error) {
         display.textContent =
             "Recognized: " + latex + " — " + error.message;
     }
+}
+
+function renderCalculationHistory() {
+    const rows = calculationHistory.slice().reverse().map(({ equation, answer }) => {
+        const row = document.createElement("li");
+        const equationText = document.createElement("span");
+        const answerText = document.createElement("strong");
+        equationText.textContent = equation.replace(/=$/, "") + " = ";
+        answerText.textContent = answer;
+        row.append(equationText, answerText);
+        return row;
+    });
+    document.getElementById("calculationHistory").replaceChildren(...rows);
+    document.getElementById("historyEmpty").hidden = rows.length > 0;
+    document.getElementById("historyCount").textContent =
+        `${rows.length} / ${calculationHistoryLimit}`;
 }
 
 function drawDot(point, width) {

@@ -60,6 +60,15 @@ Resize preserves the drawing in its logical coordinates. The preprocessing
 preview stays hidden as in the current frontend design. Results and previews
 are derived from strokes; they are not independent history actions.
 
+Calculation history
+-------------------
+Calculation history keeps the latest 10 evaluated equations and answers as
+text, newest first. When full, the oldest entry is removed for the next result.
+Incomplete expressions, calculator errors and outdated recognition replies
+are not added. Clear and drawing undo/redo do not erase calculation history;
+a restored equation that is evaluated again adds another entry. Refreshing
+the page resets this history too.
+
 Automated verification
 ----------------------
 Run all tests from the project folder:
@@ -78,6 +87,8 @@ model/calculator startup, recognition errors, and stale/duplicate replies.
 They also cover pencil widths/tool settings, both eraser modes, whole-gesture
 erase history, no-op erasing, fragment restoration, Clear during erasing and
 recognition requests after eraser undo/redo.
+Calculation-history checks cover the 10-entry limit, equation/answer pairing,
+retention after Clear, repeated evaluations, errors and outdated replies.
 The pipeline test uses the real LaTeX formatter and bundled evaluate.wasm to
 check that restored stroke data can produce calculations such as 2*3=6.
 Controlled worker replies make history tests independent of recognition speed
