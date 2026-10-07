@@ -1,6 +1,7 @@
 // Convert LaTeX into arithmetic text for evaluate.cpp.
 export function formatLatex(latex) {
   let expression = latex.replace(/\s/g, "");
+  if (expression.includes("=")) expression = expression.slice(0, expression.indexOf("=") + 1);
   // Normalize repeated terminal equals signs.
   expression = expression.replace(/={2,}$/, "=");
   expression = expression.replace(/\\times/g, "*");

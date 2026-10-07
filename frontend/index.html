@@ -40,13 +40,22 @@
       </div>
 
       <div class="canvas-wrapper">
-        <canvas id="canvas" width="900" height="400"></canvas>
+        <canvas id="canvas" width="900" height="400" aria-label="Draw your math expression"></canvas>
       </div>
     </div>
 
     <!-- Buttons -->
     <div class="controls">
-      <button id="clearBtn" type="button">
+      <button id="undoBtn" type="button" aria-label="Undo last action"
+        aria-keyshortcuts="Control+Z Meta+Z" title="Undo (Ctrl/Cmd+Z)" disabled>
+        <span aria-hidden="true">↶</span> Undo
+      </button>
+      <button id="redoBtn" type="button" aria-label="Redo last action"
+        aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z"
+        title="Redo (Ctrl/Cmd+Shift+Z; Ctrl+Y on Windows)" disabled>
+        <span aria-hidden="true">↷</span> Redo
+      </button>
+      <button id="clearBtn" type="button" aria-label="Clear drawing" title="Clear drawing (undoable)">
         🗑️ Clear
       </button>
     </div>
@@ -59,6 +68,13 @@
 
   </div>
 
+  <script>
+    // Local files cannot load the app's module worker and model assets.
+    if (location.protocol === "file:") {
+      document.getElementById("answer").textContent =
+        "Start CalcInk with npm run dev, then open http://localhost:5173/frontend/index.html";
+    }
+  </script>
   <script type="module" src="../backend/app.js"></script>
 </body>
 

@@ -110,6 +110,7 @@ button {
   height: auto;
   aspect-ratio: 9 / 4;
   touch-action: none;
+  user-select: none;
 }
 
 .controls {
@@ -120,6 +121,8 @@ button {
   margin-top: 20px;
 }
 
+#undoBtn,
+#redoBtn,
 #clearBtn {
   display: inline-flex;
   align-items: center;
@@ -169,7 +172,7 @@ button:disabled { opacity: .45; cursor: default; }
   .tool-bar .tool-btn:hover { background: #32303f; border-color: #5f567a; }
   .tool-bar .tool-btn.active:hover,
   .tool-bar .tool-btn[aria-pressed='true']:hover { background: #c5b5ff; }
-  #clearBtn:hover { background: #302631; border-color: #6e4e60; color: #ffc6d6; }
+  .controls button:hover:enabled { background: #302631; border-color: #6e4e60; color: #ffc6d6; }
 }
 
 @media (max-width: 600px) {

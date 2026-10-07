@@ -4,7 +4,11 @@ import { formatLatex } from "./formatter.js";
 const canvas = document.getElementById("canvas");
 const context = canvas.getContext("2d");
 const display = document.getElementById("answer");
+const undoBtn = document.getElementById("undoBtn");
+const redoBtn = document.getElementById("redoBtn");
 const strokes = [];
+const undoActions = [];
+const redoActions = [];
 const logicalWidth = 900;
 const logicalHeight = 400;
 
@@ -12,6 +16,8 @@ let currentStroke = null;
 let activeTool = "pencil";
 let erasingPointer = null;
 let lastEraserPoint = null;
+let eraserBefore = null;
+let eraserChanged = false;
 
 let eraserMode = "stroke";
 
@@ -147,6 +153,8 @@ selectTool("pencil");
 let drawingVersion = 0;
 let recognitionTimer;
 let recognitionBusy = false;
+let recognitionVersion = null;
+let recognitionPending = false;
 let modelReady = false;
 let evaluator;
 
@@ -160,7 +168,7 @@ createEvaluator().then(function (module) {
     evaluator = module;
 
     if (modelReady) {
-        display.textContent = "Handwriting model ready";
+        if (drawingVersion === 0) display.textContent = "Handwriting model ready";
         scheduleRecognition();
     }
 }).catch(function (error) {
@@ -245,6 +253,7 @@ function resizeCanvas() {
 }
 
 resizeCanvas();
+updateHistoryButtons();
 new ResizeObserver(resizeCanvas).observe(canvas);
 
 function getPoint(event) {
@@ -264,6 +273,32 @@ function clearPreview() {
     preview.getContext("2d").clearRect(
         0, 0, preview.width, preview.height
     );
+}
+
+function updateHistoryButtons() {
+    const editing = currentStroke !== null || erasingPointer !== null;
+    undoBtn.disabled = editing || undoActions.length === 0;
+    redoBtn.disabled = editing || redoActions.length === 0;
+}
+
+function invalidateDrawing() {
+    clearTimeout(recognitionTimer);
+    recognitionPending = false;
+    drawingVersion += 1;
+    display.textContent = "";
+    clearPreview();
+}
+
+function historyChanged() {
+    invalidateDrawing();
+    redrawInk();
+    updateHistoryButtons();
+    scheduleRecognition();
+}
+
+function restoreStrokes(saved) {
+    strokes.length = 0;
+    for (const stroke of saved) strokes.push(stroke);
 }
 
 function redrawInk() {
@@ -487,9 +522,8 @@ function eraseTo(point) {
     lastEraserPoint = point;
 
     if (changed) {
-        drawingVersion += 1;
-        display.textContent = "";
-        clearPreview();
+        eraserChanged = true;
+        invalidateDrawing();
         redrawInk();
     }
 }
@@ -498,16 +532,14 @@ canvas.addEventListener("pointerdown", function (event) {
     if (
         currentStroke !== null ||
         erasingPointer !== null ||
-        event.button !== 0
+        event.button !== 0 ||
+        event.isPrimary === false
     ) {
         return;
     }
 
     event.preventDefault();
-    clearTimeout(recognitionTimer);
-
-    drawingVersion += 1;
-    display.textContent = "";
+    invalidateDrawing();
 
     canvas.setPointerCapture(event.pointerId);
 
@@ -516,6 +548,11 @@ canvas.addEventListener("pointerdown", function (event) {
     if (activeTool === "eraser") {
         erasingPointer = event.pointerId;
         lastEraserPoint = null;
+        // Erasing replaces stroke records rather than mutating them. Preserve
+        // both arrays so a whole drag (including pixel fragments) is one action.
+        eraserBefore = strokes.slice();
+        eraserChanged = false;
+        updateHistoryButtons();
         eraseTo(point);
         return;
     }
@@ -527,6 +564,7 @@ canvas.addEventListener("pointerdown", function (event) {
         drawX: point.x,
         drawY: point.y
     };
+    updateHistoryButtons();
 
     context.lineWidth = pencilWidth;
     drawDot(point, pencilWidth);
@@ -585,19 +623,18 @@ function finishStroke(event) {
     if (erasingPointer === event.pointerId) {
         if (event.type === "pointerup") eraseTo(getPoint(event));
 
+        if (eraserChanged) {
+            undoActions.push({ type: "erase", before: eraserBefore, after: strokes.slice() });
+            redoActions.length = 0;
+        }
         erasingPointer = null;
         lastEraserPoint = null;
+        eraserBefore = null;
+        eraserChanged = false;
+        updateHistoryButtons();
 
         if (canvas.hasPointerCapture(event.pointerId)) {
             canvas.releasePointerCapture(event.pointerId);
-        }
-
-        if (!strokes.length) {
-            clearPreview();
-
-            display.textContent = modelReady && evaluator
-                ? "Handwriting model ready"
-                : "Loading...";
         }
 
         scheduleRecognition();
@@ -619,13 +656,17 @@ function finishStroke(event) {
     context.lineTo(last.x, last.y);
     context.stroke();
 
-    strokes.push({
+    const stroke = {
         points: currentStroke.points,
         lineWidth: currentStroke.lineWidth
-    });
+    };
+    strokes.push(stroke);
+    undoActions.push({ type: "stroke", stroke });
+    redoActions.length = 0;
 
     currentStroke = null;
-    drawingVersion += 1;
+    invalidateDrawing();
+    updateHistoryButtons();
 
     if (canvas.hasPointerCapture(event.pointerId)) {
         canvas.releasePointerCapture(event.pointerId);
@@ -636,12 +677,16 @@ function finishStroke(event) {
 
 canvas.addEventListener("pointerup", finishStroke);
 canvas.addEventListener("pointercancel", finishStroke);
+canvas.addEventListener("lostpointercapture", finishStroke);
 
 function scheduleRecognition() {
     clearTimeout(recognitionTimer);
+    recognitionPending = strokes.length > 0;
+    if (!recognitionPending) return;
 
     recognitionTimer = setTimeout(function () {
-        if (!modelReady ||
+        if (!recognitionPending ||
+            !modelReady ||
             !evaluator ||
             recognitionBusy ||
             !strokes.length) {
@@ -650,7 +695,9 @@ function scheduleRecognition() {
 
         if (currentStroke || erasingPointer !== null) return;
 
+        recognitionPending = false;
         recognitionBusy = true;
+        recognitionVersion = drawingVersion;
         worker.postMessage({ strokes, version: drawingVersion });
     }, 600);
 }
@@ -662,7 +709,7 @@ worker.onmessage = function (event) {
         modelReady = true;
 
         if (evaluator) {
-            display.textContent = "Handwriting model ready";
+            if (drawingVersion === 0) display.textContent = "Handwriting model ready";
             scheduleRecognition();
         }
 
@@ -675,10 +722,13 @@ worker.onmessage = function (event) {
         return;
     }
 
+    // Delayed replies cannot update the preview or unlock a newer request.
+    if (message.version !== recognitionVersion) return;
     const isCurrent =
         message.version === drawingVersion &&
         !currentStroke &&
-        erasingPointer === null;
+        erasingPointer === null &&
+        strokes.length > 0;
 
     if (message.type === "preview") {
         if (isCurrent) {
@@ -698,7 +748,9 @@ worker.onmessage = function (event) {
         return;
     }
 
+    if (message.type !== "result" && message.type !== "error") return;
     recognitionBusy = false;
+    recognitionVersion = null;
 
     if (isCurrent) {
         if (message.type === "result") {
@@ -707,7 +759,7 @@ worker.onmessage = function (event) {
             display.textContent =
                 "Recognition failed: " + message.message;
         }
-    } else {
+    } else if (recognitionPending) {
         scheduleRecognition();
     }
 };
@@ -715,39 +767,64 @@ worker.onmessage = function (event) {
 worker.onerror = function (event) {
     modelReady = false;
     recognitionBusy = false;
+    recognitionVersion = null;
+    recognitionPending = false;
 
     display.textContent =
         "Recognition worker failed: " + event.message;
 };
 
-document.getElementById("clearBtn").addEventListener(
-    "click",
-    function () {
-        clearTimeout(recognitionTimer);
+function undo() {
+    if (currentStroke || erasingPointer !== null || !undoActions.length) return;
+    const action = undoActions.pop();
+    if (action.type === "clear") restoreStrokes(action.strokes);
+    else if (action.type === "erase") restoreStrokes(action.before);
+    else strokes.pop();
+    redoActions.push(action);
+    historyChanged();
+}
 
-        // Ignore results from recognition started before clearing.
-        drawingVersion += 1;
+function redo() {
+    if (currentStroke || erasingPointer !== null || !redoActions.length) return;
+    const action = redoActions.pop();
+    if (action.type === "clear") strokes.length = 0;
+    else if (action.type === "erase") restoreStrokes(action.after);
+    else strokes.push(action.stroke);
+    undoActions.push(action);
+    historyChanged();
+}
 
-        if (currentStroke &&
-            canvas.hasPointerCapture(currentStroke.pointerId)) {
-            canvas.releasePointerCapture(currentStroke.pointerId);
-        }
+undoBtn.addEventListener("click", undo);
+redoBtn.addEventListener("click", redo);
 
-        if (erasingPointer !== null &&
-            canvas.hasPointerCapture(erasingPointer)) {
-            canvas.releasePointerCapture(erasingPointer);
-        }
+const isWindows = /^Win/i.test(navigator.userAgentData?.platform || navigator.platform);
+document.addEventListener("keydown", function (event) {
+    if (event.defaultPrevented || event.altKey || !(event.ctrlKey || event.metaKey)) return;
+    const path = event.composedPath ? event.composedPath() : [event.target];
+    if (path.some(element => element.isContentEditable ||
+        element.matches?.("input, textarea, select, [role='textbox']"))) return;
 
-        erasingPointer = null;
-        lastEraserPoint = null;
-        currentStroke = null;
-        strokes.length = 0;
+    const key = event.key.toLowerCase();
+    const undoShortcut = key === "z" && !event.shiftKey;
+    const redoShortcut = (key === "z" && event.shiftKey) ||
+        (isWindows && event.ctrlKey && !event.metaKey && !event.shiftKey && key === "y");
+    if (!undoShortcut && !redoShortcut) return;
 
-        resizeCanvas();
-        clearPreview();
+    event.preventDefault();
+    if (undoShortcut) undo();
+    else redo();
+});
 
-        display.textContent = modelReady && evaluator
-            ? "Handwriting model ready"
-            : "Loading...";
+document.getElementById("clearBtn").addEventListener("click", function () {
+    const pointerId = currentStroke?.pointerId ?? erasingPointer;
+    if (pointerId !== null) {
+        // Finish the visible pencil/eraser edit before recording Clear. Pointer
+        // state is reset before capture is released, so later events are inert.
+        finishStroke({ type: "clear", pointerId });
     }
-);
+    if (!strokes.length) return;
+    undoActions.push({ type: "clear", strokes: strokes.slice() });
+    strokes.length = 0;
+    redoActions.length = 0;
+    historyChanged();
+});
