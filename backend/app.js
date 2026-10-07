@@ -9,6 +9,68 @@ const canvasWrapper = document.getElementById("canvasWrapper");
 const undoBtn = document.getElementById("undoBtn");
 const redoBtn = document.getElementById("redoBtn");
 const strokes = [];
+const equations = new Map();
+let nextEquationId = 1;
+let nextRequestId = 1;
+let activeRecognition = null;
+
+function equationAt(point) {
+    let best = null, distance = Infinity;
+    for (const equation of equations.values()) {
+        if (!equation.strokes.length) continue;
+        let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+        for (const stroke of equation.strokes) for (const p of stroke.points) {
+            left = Math.min(left, p.x); right = Math.max(right, p.x);
+            top = Math.min(top, p.y); bottom = Math.max(bottom, p.y);
+        }
+        const height = bottom - top;
+        const verticalGap = Math.max(top - point.y, point.y - bottom, 0);
+        const horizontalGap = Math.max(left - point.x, point.x - right, 0);
+        // A completed equation's right edge starts a new equation, rather than
+        // absorbing another equation written alongside its displayed answer.
+        if (equation.expression && point.x > right + 24) continue;
+        if (verticalGap > Math.max(18, height * 0.35) || horizontalGap > Math.max(80, Math.min(120, height * 1.1))) continue;
+        const score = horizontalGap + Math.abs(point.y - (top + bottom) / 2);
+        if (score < distance) { best = equation; distance = score; }
+    }
+    if (best) return best;
+    const id = nextEquationId++;
+    const output = id === 1 ? canvasAnswer : document.createElement("output");
+    output.classList.toggle("equation-answer", true);
+    output.setAttribute("aria-live", "polite");
+    output.setAttribute("aria-label", `Answer for equation ${id}`);
+    output.hidden = true;
+    if (id !== 1) canvasWrapper.append(output);
+    const equation = { id, output, strokes: [], revision: 0, dirty: false, expression: null };
+    equations.set(id, equation);
+    return equation;
+}
+
+function invalidateEquation(equation) {
+    equation.revision++;
+    equation.dirty = equation.strokes.length > 0;
+    equation.output.hidden = true;
+    equation.output.textContent = "";
+    const row = calculationHistory.findIndex(entry => entry.equationId === equation.id);
+    if (row !== -1) calculationHistory.splice(row, 1);
+}
+
+function synchronizeEquations() {
+    const grouped = new Map();
+    for (const stroke of strokes) {
+        if (!grouped.has(stroke.equationId)) grouped.set(stroke.equationId, []);
+        grouped.get(stroke.equationId).push(stroke);
+    }
+    for (const equation of equations.values()) {
+        const next = grouped.get(equation.id) || [];
+        if (next.length !== equation.strokes.length || next.some((stroke, i) => stroke !== equation.strokes[i])) {
+            equation.strokes = next;
+            invalidateEquation(equation);
+        }
+    }
+    renderCalculationHistory();
+    positionCanvasAnswer();
+}
 const undoActions = [];
 const redoActions = [];
 const drawingHistoryLimit = 100;
@@ -288,9 +350,9 @@ createEvaluator().then(function (module) {
     display.textContent = "Calculator failed to load: " + error.message;
 });
 
-function showAnswer(latex) {
+function showAnswer(latex, equation) {
     console.log("Model output:", latex);
-    clearCanvasAnswer();
+    equation.output.hidden = true;
 
     try {
         const expression = formatLatex(latex);
@@ -304,10 +366,11 @@ function showAnswer(latex) {
         const answer = String(evaluator.calculate(expression));
         display.textContent = answer === "Waiting" || answer.startsWith("Error:") ? answer : "Ready";
         if (answer !== "Waiting" && !answer.startsWith("Error:")) {
-            canvasAnswer.textContent = answer;
-            canvasAnswer.hidden = false;
+            equation.expression = expression;
+            equation.output.textContent = answer;
+            equation.output.hidden = false;
             positionCanvasAnswer();
-            calculationHistory.push({ equation: expression, answer });
+            calculationHistory.push({ equationId: equation.id, equation: expression, answer });
             if (calculationHistory.length > calculationHistoryLimit) {
                 calculationHistory.shift();
             }
@@ -320,12 +383,20 @@ function showAnswer(latex) {
 }
 
 function clearCanvasAnswer() {
+    for (const equation of equations.values()) {
+        equation.output.hidden = true;
+        equation.output.textContent = "";
+    }
     canvasAnswer.hidden = true;
-    canvasAnswer.textContent = "";
     canvasWrapper.style.paddingBottom = "0px";
 }
 
 function positionCanvasAnswer() {
+    for (const equation of equations.values()) positionEquationAnswer(equation);
+}
+function positionEquationAnswer(equation) {
+    const canvasAnswer = equation.output;
+    const strokes = equation.strokes;
     if (canvasAnswer.hidden || !strokes.length) return;
 
     // The recognizer returns text, not symbol locations. Anchor to the trailing
@@ -528,12 +599,13 @@ function recordDrawingAction(action) {
     redoActions.length = 0;
 }
 
-function invalidateDrawing() {
+function invalidateDrawing(equation = null) {
     clearTimeout(recognitionTimer);
     recognitionPending = false;
     drawingVersion += 1;
     display.textContent = "";
-    clearCanvasAnswer();
+    if (equation) invalidateEquation(equation);
+    synchronizeEquations();
     clearPreview();
 }
 
@@ -711,7 +783,8 @@ function pixelEraseStroke(stroke, center) {
         if (remaining.length) {
             fragments.push({
                 points: remaining,
-                lineWidth: stroke.lineWidth
+                lineWidth: stroke.lineWidth,
+                equationId: stroke.equationId
             });
 
             remaining = [];
@@ -802,7 +875,6 @@ canvas.addEventListener("pointerdown", function (event) {
     }
 
     event.preventDefault();
-    invalidateDrawing();
 
     canvas.setPointerCapture(event.pointerId);
 
@@ -820,7 +892,10 @@ canvas.addEventListener("pointerdown", function (event) {
         return;
     }
 
+    const equation = equationAt(point);
+    invalidateDrawing(equation);
     currentStroke = {
+        equationId: equation.id,
         pointerId: event.pointerId,
         points: [point],
         lineWidth: pencilWidth,
@@ -942,7 +1017,8 @@ function finishStroke(event) {
 
     const stroke = {
         points: currentStroke.points,
-        lineWidth: currentStroke.lineWidth
+        lineWidth: currentStroke.lineWidth,
+        equationId: currentStroke.equationId
     };
     strokes.push(stroke);
     recordDrawingAction({ type: "stroke", stroke });
@@ -996,25 +1072,21 @@ window.addEventListener("blur", () => {
 function scheduleRecognition() {
     clearTimeout(recognitionTimer);
     if (pageClosed) return;
-    recognitionPending = strokes.length > 0;
+    recognitionPending = [...equations.values()].some(equation => equation.dirty);
     if (!recognitionPending) return;
+    recognitionTimer = setTimeout(sendNextRecognition, 600);
+}
 
-    recognitionTimer = setTimeout(function () {
-        if (!recognitionPending ||
-            !modelReady ||
-            !evaluator ||
-            recognitionBusy ||
-            !strokes.length) {
-            return;
-        }
-
-        if (currentStroke || erasingPointer !== null || panGesture) return;
-
-        recognitionPending = false;
-        recognitionBusy = true;
-        recognitionVersion = drawingVersion;
-        worker.postMessage({ strokes, version: drawingVersion });
-    }, 600);
+function sendNextRecognition() {
+    if (pageClosed || !modelReady || !evaluator || recognitionBusy ||
+        currentStroke || erasingPointer !== null || panGesture) return;
+    const equation = [...equations.values()].find(item => item.dirty && item.strokes.length);
+    if (!equation) { recognitionPending = false; return; }
+    equation.dirty = false;
+    recognitionBusy = true;
+    recognitionVersion = nextRequestId++;
+    activeRecognition = { equation, revision: equation.revision };
+    worker.postMessage({ strokes: equation.strokes, version: recognitionVersion });
 }
 
 worker.onmessage = function (event) {
@@ -1039,11 +1111,10 @@ worker.onmessage = function (event) {
 
     // Delayed replies cannot update the preview or unlock a newer request.
     if (message.version !== recognitionVersion) return;
-    const isCurrent =
-        message.version === drawingVersion &&
-        !currentStroke &&
-        erasingPointer === null &&
-        strokes.length > 0;
+    const job = activeRecognition;
+    const isCurrent = job && job.revision === job.equation.revision &&
+        job.equation.strokes.length > 0;
+
 
     if (message.type === "preview") {
         if (isCurrent) {
@@ -1069,14 +1140,14 @@ worker.onmessage = function (event) {
 
     if (isCurrent) {
         if (message.type === "result") {
-            showAnswer(message.latex);
+            showAnswer(message.latex, job.equation);
         } else {
             display.textContent =
                 "Recognition failed: " + message.message;
         }
-    } else if (recognitionPending) {
-        scheduleRecognition();
     }
+    activeRecognition = null;
+    sendNextRecognition();
 };
 
 worker.onerror = function (event) {
@@ -1091,7 +1162,7 @@ worker.onerror = function (event) {
 };
 
 function undo() {
-    if (currentStroke || erasingPointer !== null || !undoActions.length) return;
+    if (currentStroke || erasingPointer !== null || panGesture || !undoActions.length) return;
     const action = undoActions.pop();
     if (action.type === "clear") restoreStrokes(action.strokes);
     else if (action.type === "erase") restoreStrokes(action.before);
@@ -1101,7 +1172,7 @@ function undo() {
 }
 
 function redo() {
-    if (currentStroke || erasingPointer !== null || !redoActions.length) return;
+    if (currentStroke || erasingPointer !== null || panGesture || !redoActions.length) return;
     const action = redoActions.pop();
     if (action.type === "clear") strokes.length = 0;
     else if (action.type === "erase") restoreStrokes(action.after);

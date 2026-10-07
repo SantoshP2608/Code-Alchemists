@@ -83,7 +83,11 @@ async function setup({
     elements.eraserCursor.hidden = true;
     elements.canvasAnswer.rectangle = { left: 0, top: 0, width: 60, height: 32 };
     const document = {
-        ...element(), getElementById: id => elements[id], createElement: () => element()
+        ...element(), getElementById: id => elements[id], createElement: tag => {
+            const item = element();
+            if (tag === "output") item.rectangle = { left: 0, top: 0, width: 60, height: 32 };
+            return item;
+        }
     };
     const browserWindow = {
         ...element(), devicePixelRatio: 2,
@@ -351,7 +355,7 @@ test("calculation history pairs equations and answers, keeping only the latest 1
     });
     assert.equal(app.historyEmpty.hidden, false);
     for (let i = 1; i <= 12; i++) {
-        app.stroke(i, true);
+        drawLine(app, 10, i * 100, 30, i * 100 + 20);
         app.tick();
         const { version } = app.worker.requests.at(-1);
         app.message({ type: "result", version, latex: `${i}+${i}=` });
@@ -365,10 +369,12 @@ test("calculation history pairs equations and answers, keeping only the latest 1
     app.clearBtn.emit("click");
     app.undoBtn.emit("click");
     app.resize();
-    assert.equal(app.calculationHistory.children.length, 10);
+    assert.equal(app.calculationHistory.children.length, 0);
     app.tick();
-    app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: "12+12=" });
-    assert.deepEqual(historyRows(app).slice(0, 2), [["12+12 = ", "24"], ["12+12 = ", "24"]]);
+    for (let i = 1; i <= 12; i++) {
+        app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: `${i}+${i}=` });
+    }
+    assert.deepEqual(historyRows(app).slice(0, 2), [["12+12 = ", "24"], ["11+11 = ", "22"]]);
     assert.equal(app.calculationHistory.children.length, 10);
     const fresh = await setup();
     assert.equal(fresh.calculationHistory.children.length, 0);
@@ -417,7 +423,7 @@ test("outdated and duplicate worker replies cannot add calculation history entri
     app.message({ type: "result", version: old.version, latex: "stale=" });
     assert.deepEqual(historyRows(app), [["2+3 = ", "answer:2+3="]]);
     app.undoBtn.emit("click");
-    assert.deepEqual(historyRows(app), [["2+3 = ", "answer:2+3="]]);
+    assert.deepEqual(historyRows(app), []);
 });
 
 test("completed strokes and dots undo and redo in order; active strokes disable controls", async () => {
@@ -913,12 +919,12 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     app.message({ type: "result", version: redone.version, latex: "\\frac{12}{4}=" });
     assert.equal(app.canvasAnswer.textContent, "3");
     assert.equal(app.answer.textContent, "Ready");
-    assert.deepEqual(historyRows(app), [["(12)/(4) = ", "3"], ["2*3 = ", "6"], ["2*3 = ", "6"]]);
-    app.stroke(100);
+    assert.deepEqual(historyRows(app), [["(12)/(4) = ", "3"]]);
+    app.stroke(10);
     app.tick();
     app.message({ type: "result", version: app.worker.requests[3].version, latex: "2+3" });
     assert.equal(app.answer.textContent, ""); // An incomplete expression is not calculated.
-    app.stroke(150);
+    app.stroke(20);
     app.tick();
     app.message({ type: "result", version: app.worker.requests[4].version, latex: "x=" });
     assert.match(app.answer.textContent, /Unsupported symbol/);
@@ -1239,4 +1245,153 @@ test("the eraser ring reflects zoom without changing the remembered brush size",
     assert.equal(app.sizeSlider.value, "60");
     app.canvas.emit("pointerleave");
     assert.equal(app.eraserCursor.hidden, true);
+});
+
+function solveNext(app, latex) {
+    const request = app.worker.requests.at(-1);
+    app.message({ type: "result", version: request.version, latex });
+    return request;
+}
+
+function outputs(app) {
+    return [app.canvasAnswer, ...app.canvasWrapper.children].filter(item => !item.hidden);
+}
+
+test("separate rows queue independent recognition and retain every inline answer", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140);
+    drawLine(app, 50, 250, 70, 290);
+    drawLine(app, 50, 400, 70, 440);
+    app.tick();
+    assert.equal(app.worker.requests.length, 1);
+    const first = solveNext(app, "2+3=");
+    assert.equal(first.strokes.length, 1);
+    assert.equal(app.worker.requests.length, 2);
+    solveNext(app, "6-2=");
+    solveNext(app, "3*3=");
+    assert.equal(app.worker.requests.length, 3);
+    assert.deepEqual(outputs(app).map(item => item.textContent), ["answer:2+3=", "answer:6-2=", "answer:3*3="]);
+    const tops = outputs(app).map(item => parseFloat(item.style.top));
+    assert.ok(tops[0] < tops[1] && tops[1] < tops[2]);
+    assert.equal(app.historyCount.textContent, "3 / 10");
+});
+
+test("side-by-side equations get separate answers, including unsolved equations", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 80, 140);
+    drawLine(app, 450, 100, 480, 140);
+    app.tick();
+    solveNext(app, "1+2=");
+    solveNext(app, "8/2=");
+    assert.equal(outputs(app).length, 2);
+    assert.deepEqual(app.worker.requests.map(request => request.strokes[0].points[0].x), [50, 450]);
+    const [left, right] = outputs(app).map(item => parseFloat(item.style.left));
+    assert.ok(left < right);
+    // A completed equation also permits a new one after a smaller gap.
+    drawLine(app, 130, 100, 150, 140);
+    app.tick();
+    solveNext(app, "4+4=");
+    assert.equal(outputs(app).length, 3);
+});
+
+test("editing an equation updates its history without invalidating other answers", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140);
+    drawLine(app, 50, 250, 70, 290);
+    app.tick(); solveNext(app, "2+3="); solveNext(app, "8-2=");
+    const second = app.canvasWrapper.children[0];
+    drawLine(app, 55, 110, 60, 130);
+    assert.equal(app.canvasAnswer.hidden, true);
+    assert.equal(second.hidden, false);
+    assert.deepEqual(historyRows(app), [["8-2 = ", "answer:8-2="]]);
+    app.tick();
+    assert.equal(app.worker.requests.at(-1).strokes.length, 2);
+    solveNext(app, "2+4=");
+    assert.deepEqual(historyRows(app), [["2+4 = ", "answer:2+4="], ["8-2 = ", "answer:8-2="]]);
+    assert.equal(second.textContent, "answer:8-2=");
+});
+
+test("drawing another equation does not discard an unrelated in-flight answer", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140);
+    app.tick();
+    const first = app.worker.requests.at(-1);
+    drawLine(app, 450, 100, 470, 140);
+    app.message({ type: "result", version: first.version, latex: "2+3=" });
+    assert.equal(app.canvasAnswer.hidden, false);
+    assert.equal(app.canvasAnswer.textContent, "answer:2+3=");
+    solveNext(app, "7-2=");
+    assert.equal(outputs(app).length, 2);
+});
+
+test("stale replies for an edited equation never replace its newer result", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140);
+    drawLine(app, 50, 250, 70, 290);
+    app.tick();
+    const stale = app.worker.requests.at(-1);
+    drawLine(app, 55, 110, 60, 130);
+    app.tick();
+    app.message({ type: "result", version: stale.version, latex: "stale=" });
+    assert.equal(app.canvasAnswer.hidden, true);
+    solveNext(app, "2+4=");
+    solveNext(app, "6-1=");
+    app.message({ type: "result", version: stale.version, latex: "duplicate=" });
+    assert.deepEqual(outputs(app).map(item => item.textContent), ["answer:2+4=", "answer:6-1="]);
+});
+
+test("whole-stroke erasing removes only its equation; undo restores its identity", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140);
+    drawLine(app, 50, 250, 70, 290);
+    app.tick(); solveNext(app, "2+3="); solveNext(app, "6-1=");
+    const originalId = app.worker.requests[0].strokes[0].equationId;
+    app.eraserBtn.emit("click");
+    app.canvas.emit("pointerdown", { clientX: 50, clientY: 100 });
+    app.canvas.emit("pointerup", { clientX: 50, clientY: 100 });
+    assert.equal(outputs(app).length, 1);
+    assert.deepEqual(historyRows(app), [["6-1 = ", "answer:6-1="]]);
+    app.undoBtn.emit("click"); app.tick();
+    assert.equal(app.worker.requests.at(-1).strokes[0].equationId, originalId);
+    solveNext(app, "2+3=");
+    assert.equal(outputs(app).length, 2);
+    app.redoBtn.emit("click");
+    assert.equal(outputs(app).length, 1);
+});
+
+test("pixel fragments keep their equation membership and leave other equations intact", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 200, 100);
+    drawLine(app, 50, 250, 200, 250);
+    app.tick(); solveNext(app, "2+3="); solveNext(app, "7-1=");
+    const firstId = app.worker.requests[0].strokes[0].equationId;
+    app.eraserBtn.emit("click");
+    app.eraserMode.value = "pixel"; app.eraserMode.emit("change");
+    app.canvas.emit("pointerdown", { clientX: 120, clientY: 100 });
+    app.canvas.emit("pointerup", { clientX: 120, clientY: 100 });
+    assert.equal(app.canvasWrapper.children[0].hidden, false);
+    app.tick();
+    const fragments = app.worker.requests.at(-1).strokes;
+    assert.ok(fragments.length >= 2);
+    assert.ok(fragments.every(stroke => stroke.equationId === firstId));
+    solveNext(app, "2+4=");
+    assert.equal(outputs(app).length, 2);
+});
+
+test("all equation outputs follow viewport navigation without recognizing again", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140);
+    drawLine(app, 450, 100, 470, 140);
+    app.tick(); solveNext(app, "2+3="); solveNext(app, "7-1=");
+    const before = outputs(app).map(item => parseFloat(item.style.left));
+    app.canvas.emit("wheel", { deltaX: 100, deltaY: 0, deltaMode: 0 });
+    const after = outputs(app).map(item => parseFloat(item.style.left));
+    assert.deepEqual(after, before.map(left => left - 100));
+    assert.equal(app.worker.requests.length, 2);
+    app.clearBtn.emit("click");
+    assert.equal(outputs(app).length, 0);
+    assert.deepEqual(historyRows(app), []);
+    app.undoBtn.emit("click"); app.tick();
+    solveNext(app, "2+3="); solveNext(app, "7-1=");
+    assert.equal(outputs(app).length, 2);
 });
