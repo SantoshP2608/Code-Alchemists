@@ -341,8 +341,8 @@ function resizeCanvas() {
     );
     context.clearRect(0, 0, logicalWidth, logicalHeight);
 
-    context.strokeStyle = "#ffffff";
-    context.fillStyle = "#ffffff";
+    context.strokeStyle = "#252737";
+    context.fillStyle = "#252737";
     context.lineWidth = pencilWidth;
     context.lineCap = "round";
     context.lineJoin = "round";
