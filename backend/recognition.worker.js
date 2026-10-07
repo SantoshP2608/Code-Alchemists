@@ -1,6 +1,7 @@
 import * as ort from "onnxruntime-web";
 import { InferenceEngine, loadVocab } from "ink-on/core";
 import { preprocessStrokes } from "./preprocessing.js";
+import { recognizeWithCleanup } from "./inference-resources.js";
 
 // One WASM thread inside this worker keeps the drawing thread free.
 // It also works without cross-origin isolation headers.
@@ -21,6 +22,8 @@ async function initialize() {
         self.postMessage({ type: "ready" });
     } catch (error) {
         self.postMessage({ type: "init-error", message: error.message });
+        // Close the worker to free even partially created runtime sessions.
+        self.close();
     }
 }
 
@@ -41,7 +44,7 @@ self.onmessage = async function (event) {
             width: input.width, height: input.height, pixels
         }, [pixels.buffer]);
 
-        const result = await engine.recognize(input, vocab, "number");
+        const result = await recognizeWithCleanup(engine, input, vocab, "number");
         self.postMessage({ type: "result", version, latex: result.latex });
     } catch (error) {
         self.postMessage({ type: "error", version, message: error.message });

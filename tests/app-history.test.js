@@ -18,6 +18,8 @@ async function setup({
     let timerId = 0;
     let resize;
     let worker;
+    const mediaQueries = [];
+    let observerDisconnected = false;
     function element() {
         const listeners = new Map();
         const captures = new Set();
@@ -51,6 +53,10 @@ async function setup({
                 this.emit("lostpointercapture", { pointerId: id });
             },
             addEventListener: (type, handler) => listeners.set(type, handler),
+            removeEventListener(type, handler) {
+                if (listeners.get(type) === handler) listeners.delete(type);
+            },
+            listenerCount: () => listeners.size,
             emit(type, fields = {}) {
                 const event = {
                     type, pointerId: 1, button: 0, target: this,
@@ -73,19 +79,32 @@ async function setup({
     const document = {
         ...element(), getElementById: id => elements[id], createElement: () => element()
     };
+    const browserWindow = {
+        ...element(), devicePixelRatio: 2,
+        matchMedia(query) {
+            const media = { ...element(), media: query };
+            mediaQueries.push(media);
+            return media;
+        }
+    };
     const context = vm.createContext({
         document, navigator: { platform },
-        window: { devicePixelRatio: 2 }, URL,
+        window: browserWindow, URL,
         console: { log() {} },
         setTimeout(callback) { timers.set(++timerId, callback); return timerId; },
         clearTimeout(id) { timers.delete(id); },
         ImageData: class { constructor(pixels, width, height) {
             Object.assign(this, { pixels, width, height });
         } },
-        ResizeObserver: class { constructor(callback) { resize = callback; } observe() {} },
+        ResizeObserver: class {
+            constructor(callback) { resize = callback; }
+            observe() {}
+            disconnect() { observerDisconnected = true; }
+        },
         Worker: class {
             constructor() { worker = this; this.requests = []; }
             postMessage(message) { this.requests.push(structuredClone(message)); }
+            terminate() { this.terminated = true; }
         }
     });
     const app = new vm.SourceTextModule(source, {
@@ -104,6 +123,8 @@ async function setup({
     if (ready) message({ type: "ready" });
     return {
         ...elements, worker, message, resize: () => resize(),
+        browserWindow, mediaQueries, observerDisconnected: () => observerDisconnected,
+        timerCount: () => timers.size,
         settle: () => new Promise(resolve => setImmediate(resolve)),
         key(key, fields = {}) { return document.emit("keydown", { key, ...fields }); },
         tick() {
@@ -127,6 +148,113 @@ function drawLine(app, x1, y1, x2, y2) {
     app.canvas.emit("pointerdown", { clientX: x1, clientY: y1 });
     app.canvas.emit("pointerup", { clientX: x2, clientY: y2 });
 }
+
+test("pixel-density changes preserve logical ink and replace the old density listener", async () => {
+    const app = await setup();
+    app.stroke(10);
+    assert.equal(app.canvas.width, 1800);
+    for (const ratio of [1, 1.25, 1.5, 2, 3]) {
+        const oldQuery = app.mediaQueries.at(-1);
+        app.browserWindow.devicePixelRatio = ratio;
+        oldQuery.emit("change");
+        assert.equal(oldQuery.listenerCount(), 0);
+        assert.equal(app.mediaQueries.at(-1).listenerCount(), 1);
+        assert.equal(app.canvas.width, Math.round(900 * ratio));
+        assert.equal(app.canvas.height, Math.round(400 * ratio));
+        assert.deepEqual(app.canvas.calls.filter(call => call.name === "setTransform").at(-1).args,
+            [ratio, 0, 0, ratio, 0, 0]);
+    }
+    app.tick();
+    assert.deepEqual(app.worker.requests[0].strokes[0].points,
+        [{ x: 10, y: 20 }, { x: 20, y: 30 }, { x: 30, y: 40 }]);
+});
+
+test("page teardown releases the worker, observer, density listener and debounce timer", async () => {
+    const app = await setup();
+    app.stroke(10);
+    app.browserWindow.emit("pagehide", { persisted: true });
+    assert.equal(app.worker.terminated, undefined);
+    assert.equal(app.observerDisconnected(), false);
+    assert.equal(app.mediaQueries.at(-1).listenerCount(), 1);
+    assert.equal(app.timerCount(), 1);
+    app.browserWindow.emit("pagehide", { persisted: false });
+    assert.equal(app.worker.terminated, true);
+    assert.equal(app.observerDisconnected(), true);
+    assert.equal(app.mediaQueries.at(-1).listenerCount(), 0);
+    assert.equal(app.timerCount(), 0);
+    assert.equal(app.worker.onmessage, null);
+    app.tick();
+    assert.equal(app.worker.requests.length, 0);
+});
+
+test("same-size resize callbacks reuse the canvas bitmap and still redraw the ink", async () => {
+    const app = await setup();
+    app.stroke(10);
+    let width = app.canvas.width;
+    let height = app.canvas.height;
+    let writes = 0;
+    Object.defineProperty(app.canvas, "width", {
+        get: () => width, set(value) { width = value; writes++; }
+    });
+    Object.defineProperty(app.canvas, "height", {
+        get: () => height, set(value) { height = value; writes++; }
+    });
+    app.canvas.calls.length = 0;
+    for (let i = 0; i < 10; i++) app.resize();
+    assert.equal(writes, 0);
+    assert.equal(app.canvas.calls.filter(call => call.name === "clearRect").length, 10);
+    assert.equal(app.canvas.calls.filter(call => call.name === "arc").length, 10);
+    app.canvas.rectangle.width = 450;
+    app.canvas.rectangle.height = 200;
+    app.resize();
+    assert.equal(writes, 2);
+    assert.equal(width, 900);
+    assert.equal(height, 400);
+});
+
+test("drawing history keeps only 100 actions without dropping existing ink", async () => {
+    const app = await setup();
+    for (let i = 0; i < 250; i++) app.stroke(i, true);
+    let undoCount = 0;
+    while (!app.undoBtn.disabled) {
+        app.undoBtn.emit("click");
+        if (++undoCount > 250) throw new Error("Undo did not reach its boundary");
+    }
+    assert.equal(undoCount, 100);
+    app.tick();
+    assert.equal(app.worker.requests.at(-1).strokes.length, 150);
+    const first = app.worker.requests.at(-1);
+    app.message({ type: "result", version: first.version, latex: "1=" });
+    let redoCount = 0;
+    while (!app.redoBtn.disabled) {
+        app.redoBtn.emit("click");
+        if (++redoCount > 250) throw new Error("Redo did not reach its boundary");
+    }
+    assert.equal(redoCount, 100);
+    app.clearBtn.emit("click");
+    app.undoBtn.emit("click");
+    app.tick();
+    assert.equal(app.worker.requests.at(-1).strokes.length, 250);
+    assert.equal(app.timerCount(), 0);
+});
+
+test("rapid history changes keep one debounce and one in-flight recognition", async () => {
+    const app = await setup();
+    app.stroke(10);
+    app.tick();
+    const first = app.worker.requests[0];
+    for (let i = 0; i < 1000; i++) {
+        app.undoBtn.emit("click");
+        app.redoBtn.emit("click");
+        assert.equal(app.timerCount(), 1);
+        assert.equal(app.worker.requests.length, 1);
+    }
+    app.tick();
+    app.message({ type: "result", version: first.version, latex: "old=" });
+    app.tick();
+    assert.equal(app.worker.requests.length, 2);
+    assert.equal(app.timerCount(), 0);
+});
 
 test("answers sit beside the equals ink and follow resize without entering stroke history", async () => {
     const app = await setup({ loadEvaluator: async () => ({ calculate: () => "1" }) });

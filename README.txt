@@ -3,7 +3,7 @@ CalcInk - Draw & Calculate
 
 Run the browser app
 -------------------
-Use Node.js 24 (the version used for verification) and a browser supporting
+Use Node.js 24.12.0 (recorded in .nvmrc and used for verification) and a browser supporting
 Pointer Events, ResizeObserver, Web Workers, OffscreenCanvas and WebAssembly.
 From this project folder, run:
 
@@ -35,6 +35,8 @@ Drawing and history controls
   strokes. Undo restores the original ink and widths; Redo restores the exact
   erased result. Erasing empty space does not add history or discard redo.
 - Undo: use the Undo button or Ctrl+Z / Cmd+Z.
+  Drawing undo retains the latest 100 actions. Older ink stays on the canvas,
+  but older actions cannot be undone. Redo shares this same history window.
 - Redo: use the Redo button or Ctrl+Shift+Z / Cmd+Shift+Z.
   Ctrl+Y also performs redo on Windows.
 - Clear: removes the whole drawing as one undoable action. Undo restores all
@@ -56,7 +58,9 @@ Drawing and history controls
 History stores stroke data in memory for the current page session. Refreshing
 the page resets it. History changes clear the previous answer and recognition
 preview, reject outdated worker replies, and recognize the restored drawing.
-Resize preserves the drawing in its logical coordinates. The preprocessing
+Resize and changes in display pixel density preserve logical coordinates.
+The canvas follows the current device pixel ratio, including monitor changes.
+The preprocessing
 preview stays hidden as in the current frontend design. Results and previews
 are derived from strokes; they are not independent history actions.
 
@@ -79,6 +83,9 @@ the page resets this history too.
 
 Automated verification
 ----------------------
+The six-point quality audit and its verification limits are documented in
+docs/quality-checklist.md.
+
 Run all tests from the project folder:
 
     npm test
@@ -99,6 +106,9 @@ Calculation-history checks cover the 10-entry limit, equation/answer pairing,
 retention after Clear, repeated evaluations, errors and outdated replies.
 Answer-placement checks cover positioning beside/below the equation, space
 at the bottom edge, resizing, stale replies and restoration after Clear.
+Quality checks cover fractional and Retina pixel ratios, monitor changes,
+the 100-action undo boundary, 1,000 rapid history changes, page teardown,
+and inference tensor cleanup on successful and failed recognition.
 The pipeline test uses the real LaTeX formatter and bundled evaluate.wasm to
 check that restored stroke data can produce calculations such as 2*3=6.
 Controlled worker replies make history tests independent of recognition speed
@@ -130,7 +140,16 @@ not guarantee recognition of every expression. A normal inference error is
 reported and a later edit/history change can try again. If model/calculator
 startup or the worker itself fails, drawing/history remain available; reload
 the page to restart the pipeline. History is not saved across refreshes and
-has no fixed memory cap, so very long sessions retain their stroke data.
+retains at most 100 drawing actions and 10 calculation entries. Memory still
+depends on the current drawing's stroke count/complexity and the model runtime.
+These limits and cleanup tests are not a guarantee of zero browser/runtime
+memory leaks; long-session profiling on target devices is still needed.
+
+The worker explicitly disposes tracked inference tensors after each request,
+including errors, and closes after a failed initialization. Page teardown
+terminates its worker, disconnects the canvas observer, cancels recognition
+timers and removes the pixel-density listener. Browser back/forward cached
+pages retain their suspended session so drawings can be restored normally.
 
 Tests simulate touch/pointer cancellation and Cmd shortcuts. Physical touch
 and pen devices, native macOS shortcuts, and other browsers need their own

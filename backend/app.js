@@ -11,6 +11,7 @@ const redoBtn = document.getElementById("redoBtn");
 const strokes = [];
 const undoActions = [];
 const redoActions = [];
+const drawingHistoryLimit = 100;
 const calculationHistory = [];
 const calculationHistoryLimit = 10;
 const logicalWidth = 900;
@@ -161,6 +162,7 @@ let recognitionVersion = null;
 let recognitionPending = false;
 let modelReady = false;
 let evaluator;
+let pageClosed = false;
 
 // Recognition and preprocessing run outside the drawing thread.
 const worker = new Worker(
@@ -169,6 +171,7 @@ const worker = new Worker(
 );
 
 createEvaluator().then(function (module) {
+    if (pageClosed) return;
     evaluator = module;
 
     if (modelReady) {
@@ -176,6 +179,7 @@ createEvaluator().then(function (module) {
         scheduleRecognition();
     }
 }).catch(function (error) {
+    if (pageClosed) return;
     display.textContent = "Calculator failed to load: " + error.message;
 });
 
@@ -321,8 +325,11 @@ function resizeCanvas() {
     const rectangle = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
 
-    canvas.width = Math.round(rectangle.width * ratio);
-    canvas.height = Math.round(rectangle.height * ratio);
+    const width = Math.round(rectangle.width * ratio);
+    const height = Math.round(rectangle.height * ratio);
+    // Avoid reallocating the canvas bitmap for a same-size observer callback.
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
 
     context.setTransform(
         canvas.width / logicalWidth,
@@ -332,6 +339,7 @@ function resizeCanvas() {
         0,
         0
     );
+    context.clearRect(0, 0, logicalWidth, logicalHeight);
 
     context.strokeStyle = "#ffffff";
     context.fillStyle = "#ffffff";
@@ -348,7 +356,33 @@ function resizeCanvas() {
 
 resizeCanvas();
 updateHistoryButtons();
-new ResizeObserver(resizeCanvas).observe(canvas);
+const canvasObserver = new ResizeObserver(resizeCanvas);
+canvasObserver.observe(canvas);
+
+// Moving between displays can change pixel density without changing CSS size.
+let pixelRatioQuery;
+function watchPixelRatio() {
+    pixelRatioQuery?.removeEventListener("change", handlePixelRatioChange);
+    pixelRatioQuery = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    pixelRatioQuery?.addEventListener("change", handlePixelRatioChange);
+}
+function handlePixelRatioChange() {
+    resizeCanvas();
+    watchPixelRatio();
+}
+watchPixelRatio();
+
+window.addEventListener("pagehide", function (event) {
+    // A cached page is suspended and may return with its drawing intact.
+    if (event.persisted || pageClosed) return;
+    pageClosed = true;
+    clearTimeout(recognitionTimer);
+    canvasObserver.disconnect();
+    pixelRatioQuery?.removeEventListener("change", handlePixelRatioChange);
+    worker.onmessage = null;
+    worker.onerror = null;
+    worker.terminate();
+});
 
 function getPoint(event) {
     const rectangle = canvas.getBoundingClientRect();
@@ -373,6 +407,12 @@ function updateHistoryButtons() {
     const editing = currentStroke !== null || erasingPointer !== null;
     undoBtn.disabled = editing || undoActions.length === 0;
     redoBtn.disabled = editing || redoActions.length === 0;
+}
+
+function recordDrawingAction(action) {
+    undoActions.push(action);
+    if (undoActions.length > drawingHistoryLimit) undoActions.shift();
+    redoActions.length = 0;
 }
 
 function invalidateDrawing() {
@@ -719,8 +759,7 @@ function finishStroke(event) {
         if (event.type === "pointerup") eraseTo(getPoint(event));
 
         if (eraserChanged) {
-            undoActions.push({ type: "erase", before: eraserBefore, after: strokes.slice() });
-            redoActions.length = 0;
+            recordDrawingAction({ type: "erase", before: eraserBefore, after: strokes.slice() });
         }
         erasingPointer = null;
         lastEraserPoint = null;
@@ -756,8 +795,7 @@ function finishStroke(event) {
         lineWidth: currentStroke.lineWidth
     };
     strokes.push(stroke);
-    undoActions.push({ type: "stroke", stroke });
-    redoActions.length = 0;
+    recordDrawingAction({ type: "stroke", stroke });
 
     currentStroke = null;
     invalidateDrawing();
@@ -776,6 +814,7 @@ canvas.addEventListener("lostpointercapture", finishStroke);
 
 function scheduleRecognition() {
     clearTimeout(recognitionTimer);
+    if (pageClosed) return;
     recognitionPending = strokes.length > 0;
     if (!recognitionPending) return;
 
@@ -919,8 +958,7 @@ document.getElementById("clearBtn").addEventListener("click", function () {
         finishStroke({ type: "clear", pointerId });
     }
     if (!strokes.length) return;
-    undoActions.push({ type: "clear", strokes: strokes.slice() });
+    recordDrawingAction({ type: "clear", strokes: strokes.slice() });
     strokes.length = 0;
-    redoActions.length = 0;
     historyChanged();
 });

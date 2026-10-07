@@ -112,6 +112,9 @@ button {
   aspect-ratio: 9 / 4;
   touch-action: none;
   user-select: none;
+  background-image: radial-gradient(circle, #b5a1ff18 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
 }
 
 #canvasAnswer {
@@ -123,6 +126,7 @@ button {
   overflow-wrap: anywhere;
   pointer-events: none;
   user-select: none;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .controls {
@@ -176,6 +180,7 @@ button:disabled { opacity: .45; cursor: default; }
   font-weight: 600;
   line-height: 1.5;
   overflow-wrap: anywhere;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 #preview { display: none; }
@@ -201,7 +206,7 @@ button:disabled { opacity: .45; cursor: default; }
 .history-note, #historyEmpty { color: var(--muted); font-size: .85rem; line-height: 1.5; }
 .history-note { margin-top: 6px; }
 #historyEmpty { margin-top: 16px; }
-#calculationHistory { list-style: none; }
+#calculationHistory { list-style: none; font-variant-numeric: lining-nums tabular-nums; }
 #calculationHistory li {
   display: flex;
   justify-content: space-between;
@@ -238,6 +243,7 @@ button:disabled { opacity: .45; cursor: default; }
 }
 
 #eraserMode {
+  min-height: 44px;
   padding: 8px 12px;
   margin-right: 6px;
   border: 1px solid #484153;
