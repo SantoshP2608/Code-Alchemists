@@ -158,6 +158,10 @@ function isStrokeMeaningful(strokes) {
   return totalPoints >= MIN_TOTAL_POINTS && totalLength >= MIN_PATH_LENGTH;
 }
 export function preprocessStrokes(strokes) {
+  // Marker annotations are visual ink, not mathematical symbols. All pencil
+  // colours use the original white-on-black model input below.
+  strokes = strokes.filter(stroke => stroke.tool !== "highlighter");
+  if (!strokes.length) throw new Error("No equation strokes to recognize");
   const rawCanvas = renderStrokes(strokes);
   const { canvas, contentH, contentW, canvasW } = scaleToFit(rawCanvas);
   const tensor = canvasToGrayscaleTensor(canvas);

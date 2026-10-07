@@ -1,5 +1,6 @@
 import createEvaluator from "./evaluate.js";
 import { formatLatex } from "./formatter.js";
+import { renderStroke, applyStrokeStyle } from "./stroke-renderer.js";
 
 const canvas = document.getElementById("canvas");
 const context = canvas.getContext("2d");
@@ -56,20 +57,24 @@ function invalidateEquation(equation) {
 }
 
 function synchronizeEquations() {
+    let changed = false;
     const grouped = new Map();
     for (const stroke of strokes) {
+        if (stroke.tool === "highlighter") continue;
         if (!grouped.has(stroke.equationId)) grouped.set(stroke.equationId, []);
         grouped.get(stroke.equationId).push(stroke);
     }
     for (const equation of equations.values()) {
         const next = grouped.get(equation.id) || [];
         if (next.length !== equation.strokes.length || next.some((stroke, i) => stroke !== equation.strokes[i])) {
+            changed = true;
             equation.strokes = next;
             invalidateEquation(equation);
         }
     }
     renderCalculationHistory();
     positionCanvasAnswer();
+    return changed;
 }
 const undoActions = [];
 const redoActions = [];
@@ -185,24 +190,49 @@ eraserModeSelect.addEventListener("change", function () {
 });
 
 let pencilWidth = 5;
+let highlighterWidth = 24;
 let eraserRadius = 12;
+const toolColours = { pencil: "#252737", highlighter: "#e2b23b" };
+const colourButtons = [
+    ["colourDark", "#252737"], ["colourPurple", "#6552cc"],
+    ["colourBlue", "#2475d0"], ["colourGreen", "#19845b"],
+    ["colourYellow", "#e2b23b"], ["colourPink", "#d44979"]
+].map(([id, colour]) => ({ button: document.getElementById(id), colour }));
+
+function syncColourControls() {
+    const locked = currentStroke !== null || erasingPointer !== null || panGesture !== null;
+    for (const { button, colour } of colourButtons) {
+        button.disabled = locked || activeTool === "eraser" || activeTool === "pan";
+        button.setAttribute("aria-pressed", String(toolColours[activeTool] === colour));
+    }
+}
+for (const { button, colour } of colourButtons) {
+    button.addEventListener("click", () => {
+        if (currentStroke || erasingPointer !== null || panGesture ||
+            activeTool === "eraser" || activeTool === "pan") return;
+        toolColours[activeTool] = colour;
+        syncColourControls();
+        updateCursor();
+    });
+}
 
 const sizeSlider = document.getElementById("sizeSlider");
 const sizeValue = document.getElementById("sizeValue");
 
 function syncSizeControl() {
     const pencil = activeTool === "pencil";
+    const highlighter = activeTool === "highlighter";
     sizeSlider.disabled = activeTool === "pan";
 
     sizeSlider.min = pencil ? "1" : "8";
-    sizeSlider.max = pencil ? "20" : "80";
+    sizeSlider.max = pencil ? "20" : highlighter ? "60" : "80";
     sizeSlider.value = String(
-        pencil ? pencilWidth : eraserRadius * 2
+        pencil ? pencilWidth : highlighter ? highlighterWidth : eraserRadius * 2
     );
 
     sizeSlider.setAttribute(
         "aria-label",
-        pencil ? "Pencil thickness" : "Eraser size"
+        pencil ? "Pencil thickness" : highlighter ? "Highlighter thickness" : "Eraser size"
     );
 
     sizeValue.textContent = sizeSlider.value;
@@ -225,7 +255,7 @@ function updateCursor() {
             <path
               d="M4 26 L7 17 L22 2 Q24 0 26 2
                  L29 5 Q31 7 29 9 L14 24 Z"
-              fill="#b5a1ff" stroke="#15121c"
+              fill="${toolColours.pencil}" stroke="#15121c"
               stroke-width="2"/>
             <path d="M7 17 L14 24 L4 26 Z"
               fill="#fff4d6" stroke="#15121c"
@@ -238,6 +268,13 @@ function updateCursor() {
 
         hotspotX = 4;
         hotspotY = 26;
+    } else if (activeTool === "highlighter") {
+        svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+          <path d="M6 20 20 6 28 14 14 28Z" fill="${toolColours.highlighter}" stroke="#252737" stroke-width="2"/>
+          <path d="M6 20 14 28 10 31H2v-7Z" fill="${toolColours.highlighter}" stroke="#252737"/>
+        </svg>`;
+        hotspotX = 2;
+        hotspotY = 30;
     } else {
         const scale =
             viewportScale();
@@ -288,6 +325,8 @@ sizeSlider.addEventListener("input", function () {
 
     if (activeTool === "pencil") {
         pencilWidth = size;
+    } else if (activeTool === "highlighter") {
+        highlighterWidth = size;
     } else {
         eraserRadius = size / 2;
     }
@@ -297,6 +336,7 @@ sizeSlider.addEventListener("input", function () {
 });
 const pencilBtn = document.getElementById("pencilBtn");
 const eraserBtn = document.getElementById("eraserBtn");
+const highlighterBtn = document.getElementById("highlighterBtn");
 
 function selectTool(tool) {
     if (currentStroke || erasingPointer !== null || panGesture) return;
@@ -305,6 +345,7 @@ function selectTool(tool) {
 
     for (const [button, name] of [
         [pencilBtn, "pencil"],
+        [highlighterBtn, "highlighter"],
         [eraserBtn, "eraser"],
         [panBtn, "pan"]
     ]) {
@@ -314,12 +355,14 @@ function selectTool(tool) {
     }
 
     syncSizeControl();
+    syncColourControls();
     updateCursor();
 }
 
 pencilBtn.addEventListener("click", () => selectTool("pencil"));
 eraserBtn.addEventListener("click", () => selectTool("eraser"));
 panBtn.addEventListener("click", () => selectTool("pan"));
+highlighterBtn.addEventListener("click", () => selectTool("highlighter"));
 selectTool("pencil");
 
 let drawingVersion = 0;
@@ -478,27 +521,16 @@ function drawStroke(stroke) {
     if (bounds.right < camera.x || bounds.left > camera.x + rectangle.width / scale ||
         bounds.bottom < camera.y || bounds.top > camera.y + rectangle.height / scale) return;
 
-    context.lineWidth = stroke.lineWidth;
-    drawDot(points[0], stroke.lineWidth);
+    renderStroke(context, stroke);
+}
 
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-
-    for (let i = 1; i < points.length; i++) {
-        const previous = points[i - 1];
-        const point = points[i];
-
-        context.quadraticCurveTo(
-            previous.x,
-            previous.y,
-            (previous.x + point.x) / 2,
-            (previous.y + point.y) / 2
-        );
-    }
-
-    const last = points[points.length - 1];
-    context.lineTo(last.x, last.y);
-    context.stroke();
+function paintInk() {
+    // Highlighting stays behind equation ink, using the same world transform and
+    // visibility culling as the existing infinite canvas.
+    for (const stroke of strokes) if (stroke.tool === "highlighter") drawStroke(stroke);
+    if (currentStroke?.tool === "highlighter") drawStroke(currentStroke);
+    for (const stroke of strokes) if (stroke.tool !== "highlighter") drawStroke(stroke);
+    if (currentStroke && currentStroke.tool !== "highlighter") drawStroke(currentStroke);
 }
 
 function resizeCanvas() {
@@ -527,8 +559,7 @@ function resizeCanvas() {
     context.lineCap = "round";
     context.lineJoin = "round";
 
-    for (const stroke of strokes) drawStroke(stroke);
-    if (currentStroke) drawStroke(currentStroke);
+    paintInk();
 
     positionCanvasAnswer();
     updateCursor();
@@ -591,6 +622,7 @@ function updateHistoryButtons() {
     const editing = currentStroke !== null || erasingPointer !== null || panGesture !== null;
     undoBtn.disabled = editing || undoActions.length === 0;
     redoBtn.disabled = editing || redoActions.length === 0;
+    syncColourControls();
 }
 
 function recordDrawingAction(action) {
@@ -600,12 +632,14 @@ function recordDrawingAction(action) {
 }
 
 function invalidateDrawing(equation = null) {
+    if (equation) invalidateEquation(equation);
+    const changed = synchronizeEquations();
+    // Annotation edits share history but cannot invalidate an unchanged equation.
+    if (!equation && !changed) return;
     clearTimeout(recognitionTimer);
     recognitionPending = false;
     drawingVersion += 1;
     display.textContent = "";
-    if (equation) invalidateEquation(equation);
-    synchronizeEquations();
     clearPreview();
 }
 
@@ -627,7 +661,7 @@ function redrawInk() {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.restore();
 
-    for (const stroke of strokes) drawStroke(stroke);
+    paintInk();
 }
 
 function pointSegmentDistance(point, a, b) {
@@ -782,9 +816,8 @@ function pixelEraseStroke(stroke, center) {
     function saveFragment() {
         if (remaining.length) {
             fragments.push({
-                points: remaining,
-                lineWidth: stroke.lineWidth,
-                equationId: stroke.equationId
+                ...stroke,
+                points: remaining
             });
 
             remaining = [];
@@ -892,20 +925,26 @@ canvas.addEventListener("pointerdown", function (event) {
         return;
     }
 
-    const equation = equationAt(point);
-    invalidateDrawing(equation);
+    const equation = activeTool === "highlighter" ? null : equationAt(point);
+    if (equation) invalidateDrawing(equation);
     currentStroke = {
-        equationId: equation.id,
+        equationId: equation?.id ?? null,
         pointerId: event.pointerId,
         points: [point],
-        lineWidth: pencilWidth,
+        lineWidth: activeTool === "highlighter" ? highlighterWidth : pencilWidth,
+        tool: activeTool,
+        color: toolColours[activeTool],
+        opacity: activeTool === "highlighter" ? 0.28 : 1,
         drawX: point.x,
         drawY: point.y
     };
     updateHistoryButtons();
 
-    context.lineWidth = pencilWidth;
-    drawDot(point, pencilWidth);
+    if (activeTool === "highlighter") redrawInk();
+    else {
+        applyStrokeStyle(context, currentStroke);
+        drawDot(point, currentStroke.lineWidth);
+    }
 });
 
 function addPoint(event) {
@@ -914,11 +953,16 @@ function addPoint(event) {
         currentStroke.points[currentStroke.points.length - 1];
 
     if (point.x === previous.x && point.y === previous.y) return;
+    if (currentStroke.tool === "highlighter") {
+        currentStroke.points.push(point);
+        redrawInk();
+        return;
+    }
 
     const midX = (previous.x + point.x) / 2;
     const midY = (previous.y + point.y) / 2;
 
-    context.lineWidth = currentStroke.lineWidth;
+    applyStrokeStyle(context, currentStroke);
     context.beginPath();
     context.moveTo(currentStroke.drawX, currentStroke.drawY);
     context.quadraticCurveTo(
@@ -1010,21 +1054,28 @@ function finishStroke(event) {
     const last =
         currentStroke.points[currentStroke.points.length - 1];
 
-    context.beginPath();
-    context.moveTo(currentStroke.drawX, currentStroke.drawY);
-    context.lineTo(last.x, last.y);
-    context.stroke();
+    if (currentStroke.tool !== "highlighter") {
+        applyStrokeStyle(context, currentStroke);
+        context.beginPath();
+        context.moveTo(currentStroke.drawX, currentStroke.drawY);
+        context.lineTo(last.x, last.y);
+        context.stroke();
+    }
 
     const stroke = {
         points: currentStroke.points,
         lineWidth: currentStroke.lineWidth,
-        equationId: currentStroke.equationId
+        equationId: currentStroke.equationId,
+        tool: currentStroke.tool,
+        color: currentStroke.color,
+        opacity: currentStroke.opacity
     };
     strokes.push(stroke);
     recordDrawingAction({ type: "stroke", stroke });
 
     currentStroke = null;
     invalidateDrawing();
+    redrawInk();
     updateHistoryButtons();
 
     if (canvas.hasPointerCapture(event.pointerId)) {

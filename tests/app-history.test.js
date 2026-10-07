@@ -5,6 +5,7 @@ import vm from "node:vm";
 import createEvaluator from "../backend/evaluate.js";
 import { formatLatex } from "../backend/formatter.js";
 
+const rendererSource = await readFile(new URL("../backend/stroke-renderer.js", import.meta.url), "utf8");
 const source = await readFile(new URL("../backend/app.js", import.meta.url), "utf8");
 
 // Exercise the real drawing controller with deterministic canvas, timer and worker
@@ -30,6 +31,20 @@ async function setup({
             "beginPath", "arc", "fill", "moveTo", "quadraticCurveTo",
             "lineTo", "stroke", "setTransform", "clearRect", "putImageData", "save", "restore"
         ].map(name => [name, (...args) => calls.push({ name, args })]));
+        const states = [];
+        const stateKeys = ["strokeStyle", "fillStyle", "globalAlpha", "lineWidth", "lineCap", "lineJoin"];
+        context.save = () => {
+            states.push(Object.fromEntries(stateKeys.map(key => [key, context[key]])));
+            calls.push({ name: "save", args: [] });
+        };
+        context.restore = () => {
+            Object.assign(context, states.pop());
+            calls.push({ name: "restore", args: [] });
+        };
+        for (const name of ["fill", "stroke"]) {
+            context[name] = () => calls.push({ name, args: [], colour: context.strokeStyle,
+                opacity: context.globalAlpha, lineWidth: context.lineWidth });
+        }
         return {
             textContent: "Loading model...", disabled: false, open: false,
             focus() { this.focused = true; },
@@ -76,7 +91,8 @@ async function setup({
         "pencilBtn", "eraserBtn", "eraserMode", "sizeSlider", "sizeValue",
         "calculationHistory", "historyEmpty", "historyCount", "canvasAnswer", "canvasWrapper",
         "panBtn", "eraserCursor", "zoomValue", "zoomOutBtn", "zoomInBtn", "resetViewBtn",
-        "historyBtn", "historyPanel", "closeHistoryBtn"
+        "historyBtn", "historyPanel", "closeHistoryBtn", "highlighterBtn",
+        "colourDark", "colourPurple", "colourBlue", "colourGreen", "colourYellow", "colourPink"
     ].map(id => [id, element()]));
     elements.historyCount.textContent = "0 / 10";
     elements.canvasAnswer.hidden = true;
@@ -126,7 +142,9 @@ async function setup({
     const formatter = new vm.SyntheticModule(["formatLatex"], function () {
         this.setExport("formatLatex", format);
     }, { context });
-    await app.link(name => name === "./evaluate.js" ? evaluator : formatter);
+    const renderer = new vm.SourceTextModule(rendererSource, { context });
+    await app.link(name => name === "./evaluate.js" ? evaluator :
+        name === "./stroke-renderer.js" ? renderer : formatter);
     await app.evaluate();
     await Promise.resolve();
     function message(data) { worker.onmessage({ data }); }
@@ -1394,4 +1412,251 @@ test("all equation outputs follow viewport navigation without recognizing again"
     app.undoBtn.emit("click"); app.tick();
     solveNext(app, "2+3="); solveNext(app, "7-1=");
     assert.equal(outputs(app).length, 2);
+});
+
+test("coloured pencil strokes retain appearance through undo, redo, Clear and resize", async () => {
+    const app = await setup();
+    app.colourBlue.emit("click");
+    assert.equal(app.colourBlue.getAttribute("aria-pressed"), "true");
+    assert.equal(app.colourDark.getAttribute("aria-pressed"), "false");
+    app.stroke(10); app.tick();
+    const first = solveNext(app, "1=");
+    assert.equal(first.strokes[0].color, "#2475d0");
+    assert.equal(first.strokes[0].tool, "pencil");
+    assert.equal(first.strokes[0].opacity, 1);
+    app.colourPink.emit("click"); app.stroke(40); app.tick();
+    const mixed = solveNext(app, "1=");
+    assert.deepEqual(mixed.strokes.map(stroke => stroke.color), ["#2475d0", "#d44979"]);
+    app.clearBtn.emit("click"); app.undoBtn.emit("click");
+    app.canvas.calls.length = 0; app.resize();
+    assert.deepEqual(app.canvas.calls.filter(call => call.name === "stroke").map(call => call.colour),
+        ["#2475d0", "#d44979"]);
+    app.undoBtn.emit("click"); app.redoBtn.emit("click"); app.tick();
+    assert.deepEqual(app.worker.requests.at(-1).strokes, mixed.strokes);
+});
+
+test("pencil, highlighter and eraser remember independent sizes and drawing colours", async () => {
+    const app = await setup();
+    app.colourBlue.emit("click"); app.sizeSlider.value = "8"; app.sizeSlider.emit("input");
+    app.highlighterBtn.emit("click");
+    assert.equal(app.highlighterBtn.getAttribute("aria-pressed"), "true");
+    assert.equal(app.colourYellow.getAttribute("aria-pressed"), "true");
+    assert.equal(app.sizeSlider.getAttribute("aria-label"), "Highlighter thickness");
+    assert.equal(app.sizeSlider.value, "24");
+    app.colourPink.emit("click"); app.sizeSlider.value = "40"; app.sizeSlider.emit("input");
+    app.eraserBtn.emit("click");
+    assert.equal(app.colourPink.disabled, true);
+    assert.equal(app.sizeSlider.value, "24"); // Eraser diameter.
+    app.colourGreen.emit("click"); // Disabled palettes cannot change ink.
+    app.pencilBtn.emit("click");
+    assert.equal(app.colourBlue.getAttribute("aria-pressed"), "true");
+    assert.equal(app.sizeSlider.value, "8");
+    app.highlighterBtn.emit("click");
+    assert.equal(app.colourPink.getAttribute("aria-pressed"), "true");
+    assert.equal(app.sizeSlider.value, "40");
+});
+
+test("highlighter annotations preserve answers, placement and recognition history", async () => {
+    const app = await setup();
+    app.stroke(10); app.tick(); solveNext(app, "1=");
+    const left = app.canvasAnswer.style.left;
+    app.highlighterBtn.emit("click");
+    drawLine(app, 100, 100, 500, 100);
+    assert.equal(app.canvasAnswer.hidden, false);
+    assert.equal(app.canvasAnswer.style.left, left);
+    assert.equal(app.historyCount.textContent, "1 / 10");
+    app.tick(); assert.equal(app.worker.requests.length, 1);
+    app.undoBtn.emit("click");
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.redoBtn.emit("click"); app.tick();
+    assert.equal(app.worker.requests.length, 1);
+    app.canvas.calls.length = 0; app.resize();
+    const paints = app.canvas.calls.filter(call => call.name === "stroke");
+    assert.deepEqual(paints.map(call => call.colour), ["#e2b23b", "#252737"]);
+    assert.deepEqual(paints.map(call => call.opacity), [0.28, 1]);
+    assert.equal(paints[0].lineWidth, 24);
+    app.clearBtn.emit("click"); app.undoBtn.emit("click"); app.tick();
+    const restored = solveNext(app, "1=");
+    assert.equal(restored.strokes.length, 1); // The annotation never reaches the model.
+    assert.equal(app.historyCount.textContent, "1 / 10");
+});
+
+test("highlighter-only drawings, dots and their history never request recognition", async () => {
+    const app = await setup(); app.highlighterBtn.emit("click");
+    drawLine(app, 10, 20, 10, 20);
+    drawLine(app, 100, 250, 300, 250);
+    app.tick(); assert.equal(app.worker.requests.length, 0);
+    assert.equal(app.undoBtn.disabled, false);
+    app.undoBtn.emit("click"); app.undoBtn.emit("click");
+    assert.equal(app.undoBtn.disabled, true);
+    app.redoBtn.emit("click"); app.redoBtn.emit("click");
+    app.clearBtn.emit("click"); app.clearBtn.emit("click"); app.undoBtn.emit("click");
+    app.tick(); assert.equal(app.worker.requests.length, 0);
+    assert.equal(app.historyCount.textContent, "0 / 10");
+    assert.equal(app.canvasAnswer.hidden, true);
+    app.canvas.calls.length = 0; app.resize();
+    const dot = app.canvas.calls.filter(call => call.name === "fill");
+    assert.equal(dot.length, 1); assert.equal(dot[0].opacity, 0.28);
+});
+
+test("colour/tool selection preserves redo but a new highlighter action discards it", async () => {
+    const app = await setup(); app.stroke(10); app.undoBtn.emit("click");
+    app.colourGreen.emit("click"); app.highlighterBtn.emit("click");
+    app.colourPink.emit("click"); app.sizeSlider.value = "32"; app.sizeSlider.emit("input");
+    assert.equal(app.redoBtn.disabled, false);
+    app.stroke(50, true);
+    assert.equal(app.redoBtn.disabled, true);
+    app.undoBtn.emit("click");
+    assert.equal(app.undoBtn.disabled, true);
+});
+
+test("colour and highlighter settings are locked during a gesture; active Clear preserves marker ink", async () => {
+    const app = await setup(); app.highlighterBtn.emit("click");
+    app.canvas.emit("pointerdown", { clientX: 100, clientY: 100 });
+    assert.equal(app.colourBlue.disabled, true);
+    app.colourBlue.emit("click"); app.pencilBtn.emit("click");
+    app.sizeSlider.value = "50"; app.sizeSlider.emit("input");
+    assert.equal(app.highlighterBtn.getAttribute("aria-pressed"), "true");
+    assert.equal(app.colourYellow.getAttribute("aria-pressed"), "true");
+    assert.equal(app.sizeSlider.value, "24");
+    app.canvas.emit("pointermove", { clientX: 200, clientY: 100 });
+    app.clearBtn.emit("click");
+    assert.equal(app.canvas.hasPointerCapture(1), false);
+    assert.equal(app.colourYellow.disabled, false);
+    app.canvas.emit("pointerup", { clientX: 300, clientY: 100 });
+    app.undoBtn.emit("click"); app.tick();
+    assert.equal(app.worker.requests.length, 0);
+    app.canvas.calls.length = 0; app.resize();
+    const paints = app.canvas.calls.filter(call => call.name === "stroke");
+    assert.equal(paints.length, 1);
+    assert.equal(paints[0].colour, "#e2b23b");
+    assert.equal(paints[0].lineWidth, 24);
+    assert.ok(app.canvas.calls.some(call => call.name === "lineTo" && call.args[0] === 200));
+});
+
+test("pixel erasing preserves colour, opacity and tool on pencil and marker fragments", async () => {
+    for (const highlighter of [false, true]) {
+        const app = await setup();
+        if (highlighter) app.highlighterBtn.emit("click");
+        app.colourPink.emit("click");
+        drawLine(app, 10, 100, 310, 100);
+        erase(app, 160, 100, 160, "pixel");
+        app.canvas.calls.length = 0; app.resize();
+        let paints = app.canvas.calls.filter(call => call.name === "stroke");
+        assert.equal(paints.length, 2);
+        assert.ok(paints.every(call => call.colour === "#d44979" && call.opacity === (highlighter ? 0.28 : 1)));
+        app.undoBtn.emit("click"); app.redoBtn.emit("click");
+        app.canvas.calls.length = 0; app.resize();
+        paints = app.canvas.calls.filter(call => call.name === "stroke");
+        assert.equal(paints.length, 2);
+        assert.ok(paints.every(call => call.colour === "#d44979" && call.opacity === (highlighter ? 0.28 : 1)));
+        app.tick();
+        if (highlighter) assert.equal(app.worker.requests.length, 0);
+        else assert.equal(app.worker.requests.at(-1).strokes.length, 2);
+    }
+});
+
+test("erasing only annotations retains the equation answer and avoids redundant recognition", async () => {
+    const app = await setup(); app.stroke(10); app.tick(); solveNext(app, "1=");
+    app.highlighterBtn.emit("click"); drawLine(app, 100, 100, 300, 100);
+    erase(app, 200, 100);
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.tick(); assert.equal(app.worker.requests.length, 1);
+    app.undoBtn.emit("click"); app.redoBtn.emit("click");
+    app.tick(); assert.equal(app.worker.requests.length, 1);
+    assert.equal(app.historyCount.textContent, "1 / 10");
+});
+
+test("recognition can finish during highlighting and pending pencil edits are not lost", async () => {
+    const app = await setup(); app.stroke(10); app.tick();
+    app.highlighterBtn.emit("click");
+    app.canvas.emit("pointerdown", { clientX: 100, clientY: 100 });
+    solveNext(app, "1=");
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.canvas.emit("pointerup", { clientX: 300, clientY: 100 });
+    app.pencilBtn.emit("click"); app.colourGreen.emit("click"); app.stroke(40);
+    app.tick();
+    assert.equal(app.worker.requests.at(-1).strokes.length, 2);
+    assert.ok(app.worker.requests.at(-1).strokes.every(stroke => stroke.tool === "pencil"));
+    solveNext(app, "2=");
+    assert.equal(app.canvasAnswer.hidden, false);
+    app.highlighterBtn.emit("click"); app.stroke(80, true);
+    app.tick(); assert.equal(app.worker.requests.length, 2);
+});
+
+test("colours and highlights preserve the infinite canvas's multiple-equation grouping and answers", async () => {
+    const app = await setup();
+    app.colourBlue.emit("click"); drawLine(app, 50, 100, 70, 140);
+    app.colourPink.emit("click"); drawLine(app, 450, 100, 470, 140);
+    app.tick(); solveNext(app, "2+3="); solveNext(app, "8/2=");
+    const before = outputs(app).map(output => ({ text: output.textContent,
+        left: output.style.left, top: output.style.top }));
+    app.highlighterBtn.emit("click"); drawLine(app, 40, 120, 500, 120);
+    app.undoBtn.emit("click"); app.redoBtn.emit("click");
+    app.tick();
+    assert.equal(app.worker.requests.length, 2);
+    assert.equal(app.historyCount.textContent, "2 / 10");
+    assert.deepEqual(outputs(app).map(output => ({ text: output.textContent,
+        left: output.style.left, top: output.style.top })), before);
+    assert.ok(app.worker.requests.every(request => request.strokes.every(stroke => stroke.tool === "pencil")));
+    assert.equal(app.worker.requests[0].strokes[0].color, "#2475d0");
+    assert.equal(app.worker.requests[1].strokes[0].color, "#d44979");
+});
+
+test("highlighter colours survive pan, zoom, distant world coordinates and viewport culling", async () => {
+    const app = await setup();
+    app.highlighterBtn.emit("click"); app.colourGreen.emit("click");
+    drawLine(app, 50, 100, 250, 100);
+    app.canvas.emit("wheel", { deltaX: 2000, deltaY: 0, deltaMode: 0 });
+    app.canvas.calls.length = 0; app.resize();
+    assert.equal(app.canvas.calls.some(call => call.name === "stroke"), false); // Original is offscreen.
+    drawLine(app, 100, 200, 300, 200); // World x=2100 to 2300.
+    app.canvas.calls.length = 0; app.resize();
+    let paints = app.canvas.calls.filter(call => call.name === "stroke");
+    assert.equal(paints.length, 1); assert.equal(paints[0].colour, "#19845b");
+    assert.equal(paints[0].opacity, 0.28);
+    app.canvas.emit("wheel", { ctrlKey: true, deltaY: -Math.log(2) / 0.002,
+        clientX: 450, clientY: 200 });
+    assert.equal(app.zoomValue.textContent, "200%");
+    assert.equal(app.sizeSlider.value, "24");
+    app.resetViewBtn.emit("click"); app.canvas.calls.length = 0; app.resize();
+    assert.ok(app.canvas.calls.some(call => call.name === "moveTo" && call.args[0] === 50));
+    assert.equal(app.canvas.calls.some(call => call.name === "moveTo" && call.args[0] === 2100), false);
+    app.tick(); assert.equal(app.worker.requests.length, 0);
+});
+
+test("colour controls respect pan gestures and temporary Space panning keeps the highlighter selected", async () => {
+    const app = await setup();
+    app.highlighterBtn.emit("click"); app.colourGreen.emit("click");
+    app.panBtn.emit("click"); assert.equal(app.colourPink.disabled, true);
+    assert.equal(app.sizeSlider.disabled, true);
+    app.colourPink.emit("click"); app.highlighterBtn.emit("click");
+    assert.equal(app.colourGreen.getAttribute("aria-pressed"), "true");
+    app.key(" ", { code: "Space" });
+    app.canvas.emit("pointerdown", { clientX: 100, clientY: 100 });
+    assert.equal(app.colourGreen.disabled, true);
+    app.colourPink.emit("click"); app.pencilBtn.emit("click");
+    app.canvas.emit("pointermove", { clientX: 200, clientY: 200 });
+    app.canvas.emit("pointerup", { clientX: 200, clientY: 200 });
+    // Fake document's keyup is reached through the same key event helper.
+    app.browserWindow.emit("blur");
+    assert.equal(app.highlighterBtn.getAttribute("aria-pressed"), "true");
+    assert.equal(app.colourGreen.getAttribute("aria-pressed"), "true");
+    assert.equal(app.undoBtn.disabled, true); // Navigation didn't become an ink action.
+});
+
+test("highlighting during queued multiline recognition keeps both equation results", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 140); drawLine(app, 50, 250, 70, 290);
+    app.tick();
+    app.highlighterBtn.emit("click");
+    app.canvas.emit("pointerdown", { clientX: 40, clientY: 120 });
+    solveNext(app, "2+3=");
+    assert.equal(app.canvasAnswer.hidden, false);
+    assert.equal(app.worker.requests.length, 1); // Drawing holds the next queued job.
+    app.canvas.emit("pointerup", { clientX: 100, clientY: 120 }); app.tick();
+    assert.equal(app.worker.requests.length, 2);
+    solveNext(app, "8/2=");
+    assert.deepEqual(outputs(app).map(output => output.textContent), ["answer:2+3=", "answer:8/2="]);
+    assert.equal(app.historyCount.textContent, "2 / 10");
 });

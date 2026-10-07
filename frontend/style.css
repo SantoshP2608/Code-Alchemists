@@ -109,3 +109,11 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   .tool-bar { margin-bottom: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } button:active:enabled { transform: none; } }
+
+/* Drawing colours use the current theme without changing the paper layout. */
+.ink-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--border); }
+.colour-swatch { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 12px; background: transparent; }
+.colour-swatch::before { content: ""; width: 20px; height: 20px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 1px #282a3a18; }
+.colour-swatch[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.colour-swatch:disabled { opacity: .45; }
+@media (hover: hover) { .colour-swatch:hover:enabled { background: var(--accent-soft); } }

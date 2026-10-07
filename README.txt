@@ -25,6 +25,15 @@ older implementation; it is not the place to change the drawing behavior.
 
 Drawing and history controls
 ----------------------------
+- Colours: choose Dark, Purple, Blue, Green, Yellow or Pink in the toolbar.
+  Pencil and Highlighter remember their own colours and widths. Dark remains
+  the default pencil ink for the current light paper theme.
+- Highlighter: draws translucent annotations behind equation ink. Highlights
+  are undoable, erasable and included in Clear, but do not join equations or
+  enter recognition. Highlighting preserves existing answers and their history.
+- Colour/tool/size selection preserves redo and is locked during gestures.
+  Colour controls are disabled for the Hand and Eraser tools. Highlights follow
+  the existing infinite-canvas pan, zoom and resize transforms.
 - Draw with a mouse, pen, or one primary touch pointer. A dot is a stroke.
 - Pencil and Eraser retain their own Size settings. Use the vertical slider
   for pencil thickness or eraser diameter; changing tools or size is not a
@@ -83,6 +92,13 @@ the page resets this history too.
 
 Automated verification
 ----------------------
+Colour/highlighter integration checks run with the existing app tests:
+
+    node --experimental-vm-modules --test --test-name-pattern="colour|coloured|highlighter|marker|annotation|preprocessing" tests/app-history.test.js tests/drawing-tools.test.js
+
+These cover stroke appearance, pixel fragments, annotation-only history,
+active Clear, model input normalization, and pan/zoom/multiline compatibility.
+
 The six-point quality audit and its verification limits are documented in
 docs/quality-checklist.md.
 
