@@ -513,11 +513,11 @@ test("history changes clear answers and previews and ignore stale worker message
     assert.equal(app.answer.textContent, "Ready");
     app.preview.calls.length = 0;
     app.undoBtn.emit("click");
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Processing...");
     assert.equal(app.preview.calls.at(-1).name, "clearRect");
     app.message({ type: "preview", version, width: 1, height: 1, pixels: new Uint8ClampedArray(4) });
     app.message({ type: "result", version, latex: "old" });
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Processing...");
     assert.equal(app.preview.calls.some(c => c.name === "putImageData"), false);
     app.tick();
     assert.equal(app.worker.requests.at(-1).strokes.length, 1);
@@ -535,7 +535,7 @@ test("busy recognition retains the latest history request after its timer expire
     app.tick(); // Worker is busy when the latest debounce timer fires.
     assert.equal(app.worker.requests.length, 1);
     app.message({ type: "error", version: first.version, message: "outdated error" });
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Calculating...");
     app.tick();
     assert.equal(app.worker.requests.length, 2);
     const latest = app.worker.requests[1];
@@ -556,7 +556,7 @@ test("undo to empty and Clear stay empty after in-flight recognition", async () 
         app.tick();
         app.message({ type: "result", version, latex: "outdated" });
         app.tick();
-        assert.equal(app.answer.textContent, "");
+        assert.equal(app.answer.textContent, "Ready");
         assert.equal(app.worker.requests.length, 1);
         assert.equal(app.undoBtn.disabled, action === "undoBtn");
         assert.equal(app.redoBtn.disabled, action === "clearBtn");
@@ -611,7 +611,7 @@ test("model readiness recognizes restored history without changing cleared outpu
     app.undoBtn.emit("click");
     app.tick();
     app.message({ type: "ready" });
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Ready");
     app.tick();
     assert.equal(app.worker.requests.length, 0);
     app.redoBtn.emit("click");
@@ -684,7 +684,7 @@ test("Clear undo/redo during busy recognition rejects stale preview and results"
     app.preview.calls.length = 0;
     app.message({ type: "preview", version: old.version, width: 1, height: 1, pixels: new Uint8ClampedArray(4) });
     app.message({ type: "result", version: old.version, latex: "old" });
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Calculating...");
     assert.equal(app.preview.calls.length, 0);
     app.tick();
     const latest = app.worker.requests.at(-1);
@@ -694,7 +694,7 @@ test("Clear undo/redo during busy recognition rejects stale preview and results"
     assert.equal(app.canvasAnswer.textContent, "answer:2+3=");
     assert.equal(app.answer.textContent, "Ready");
     app.redoBtn.emit("click");
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Ready");
     assert.equal(app.preview.calls.at(-1).name, "clearRect");
 });
 
@@ -778,7 +778,7 @@ test("a delayed duplicate reply cannot release a newer busy request", async () =
     app.message({ type: "unexpected", version: second.version });
     app.tick();
     assert.equal(app.worker.requests.length, 2); // Second request still owns the worker.
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Processing...");
     assert.equal(app.preview.calls.length, 0);
     app.message({ type: "result", version: second.version, latex: "outdated second" });
     app.tick();
@@ -854,7 +854,7 @@ test("history waits for both model and calculator readiness in either startup or
             resolveEvaluator({ calculate: value => `answer:${value}` });
             await app.settle();
         } else app.message({ type: "ready" });
-        assert.equal(app.answer.textContent, "");
+        assert.equal(app.answer.textContent, "Processing...");
         app.tick();
         assert.equal(app.worker.requests.length, 1);
         assert.deepEqual(app.worker.requests[0].strokes.map(s => s.points[0].x), [10, 50]);
@@ -869,7 +869,7 @@ test("late calculator readiness cannot repopulate an emptied drawing", async () 
     resolveEvaluator({ calculate: value => `answer:${value}` });
     await app.settle();
     app.tick();
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Ready");
     assert.equal(app.worker.requests.length, 0);
 });
 
@@ -883,7 +883,7 @@ test("a current recognition error is shown and the next edit can be recognized",
     app.message({ type: "error", version: first.version, message: "test inference failure" });
     assert.equal(app.answer.textContent, "Recognition failed: test inference failure");
     app.stroke(50);
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Processing...");
     assert.equal(app.preview.calls.at(-1).name, "clearRect");
     app.tick();
     const second = app.worker.requests[1];
@@ -961,7 +961,7 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     app.stroke(10);
     app.tick();
     app.message({ type: "result", version: app.worker.requests[3].version, latex: "2+3" });
-    assert.equal(app.answer.textContent, ""); // An incomplete expression is not calculated.
+    assert.equal(app.answer.textContent, "Continue writing — end with ="); // An incomplete expression is not calculated.
     app.stroke(20);
     app.tick();
     app.message({ type: "result", version: app.worker.requests[4].version, latex: "x=" });
@@ -1152,7 +1152,7 @@ test("eraser edits and their history never accept outdated recognition results",
     app.tick();
     assert.equal(app.worker.requests.length, 1);
     app.message({ type: "result", version: old.version, latex: "outdated" });
-    assert.equal(app.answer.textContent, "");
+    assert.equal(app.answer.textContent, "Calculating...");
     app.tick();
     const latest = app.worker.requests[1];
     assert.deepEqual(latest.strokes.map(s => s.points[0].x), [50]);
@@ -1184,16 +1184,16 @@ test("zoom holds the world point under the pointer fixed and bounds its scale", 
     const app = await setup();
     app.canvas.emit("wheel", { ctrlKey: true, deltaY: -Math.log(2) / 0.002,
         clientX: 450, clientY: 200 });
-    assert.equal(app.zoomValue.textContent, "200%");
+    assert.equal(app.zoomValue.value, "200");
     app.canvas.emit("pointerdown", { clientX: 450, clientY: 200 });
     app.canvas.emit("pointerup", { clientX: 450, clientY: 200 });
     app.tick();
     assert.deepEqual(app.worker.requests[0].strokes[0].points, [{ x: 450, y: 200 }]);
     app.canvas.emit("wheel", { ctrlKey: true, deltaY: -10000, clientX: 450, clientY: 200 });
-    assert.equal(app.zoomValue.textContent, "300%");
+    assert.equal(app.zoomValue.value, "300");
     assert.equal(app.zoomInBtn.disabled, true);
     app.canvas.emit("wheel", { ctrlKey: true, deltaY: 10000, clientX: 450, clientY: 200 });
-    assert.equal(app.zoomValue.textContent, "25%");
+    assert.equal(app.zoomValue.value, "25");
     assert.equal(app.zoomOutBtn.disabled, true);
 });
 
@@ -1269,7 +1269,7 @@ test("viewport navigation leaves undo, redo and pending recognition unchanged", 
     app.tick();
     assert.deepEqual(app.worker.requests.at(-1).strokes, original.strokes);
     app.resetViewBtn.emit("click");
-    assert.equal(app.zoomValue.textContent, "100%");
+    assert.equal(app.zoomValue.value, "100");
     assert.equal(app.canvas.width, 1800);
 });
 
@@ -1280,7 +1280,7 @@ test("an active pencil or eraser gesture blocks wheel navigation and zoom button
     app.zoomInBtn.emit("click");
     app.canvas.emit("pointerup", { clientX: 120, clientY: 100 });
     app.tick();
-    assert.equal(app.zoomValue.textContent, "100%");
+    assert.equal(app.zoomValue.value, "100");
     assert.deepEqual(app.worker.requests[0].strokes[0].points, [{ x: 100, y: 100 }, { x: 120, y: 100 }]);
 });
 
@@ -1693,7 +1693,7 @@ test("highlighter colours survive pan, zoom, distant world coordinates and viewp
     assert.equal(paints[0].opacity, 0.28);
     app.canvas.emit("wheel", { ctrlKey: true, deltaY: -Math.log(2) / 0.002,
         clientX: 450, clientY: 200 });
-    assert.equal(app.zoomValue.textContent, "200%");
+    assert.equal(app.zoomValue.value, "200");
     assert.equal(app.sizeSlider.value, "24");
     app.resetViewBtn.emit("click"); app.canvas.calls.length = 0; app.resize();
     assert.ok(app.canvas.calls.some(call => call.name === "moveTo" && call.args[0] === 50));
@@ -1735,4 +1735,29 @@ test("highlighting during queued multiline recognition keeps both equation resul
     solveNext(app, "8/2=");
     assert.deepEqual(outputs(app).map(output => output.textContent), ["answer:2+3=", "answer:8/2="]);
     assert.equal(app.historyCount.textContent, "2 / 10");
+});
+
+test("typed zoom applies percentages, clamps limits and rejects empty input", async () => {
+    const app = await setup();
+    for (const [input, expected] of [[150, "150"], [800, "300"], [2, "25"], [NaN, "25"]]) {
+        app.zoomValue.valueAsNumber = input;
+        app.zoomValue.emit("change");
+        assert.equal(app.zoomValue.value, expected);
+    }
+    assert.equal(app.worker.requests.length, 0);
+});
+
+test("writing shows activity and Clear returns to Ready despite a stale worker reply", async () => {
+    const app = await setup();
+    app.canvas.emit("pointerdown", { clientX: 10, clientY: 20 });
+    assert.equal(app.answer.textContent, "Writing...");
+    app.canvas.emit("pointerup", { clientX: 30, clientY: 20 });
+    app.tick();
+    assert.equal(app.answer.textContent, "Calculating...");
+    const request = app.worker.requests[0];
+    app.clearBtn.emit("click");
+    assert.equal(app.answer.textContent, "Ready");
+    app.message({ type: "result", version: request.version, latex: "2+3=" });
+    assert.equal(app.answer.textContent, "Ready");
+    assert.equal(app.canvasAnswer.hidden, true);
 });

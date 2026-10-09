@@ -193,7 +193,7 @@ The active page loads **`backend/app.js`**. Despite its name, `backend/` contain
 npm test
 ```
 
-**90 automated tests pass after the model-loading and history fixes.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
+**92 automated tests pass after merging the frontend, model-loading, and history changes.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
 
 Tests use controlled DOM, canvas, and worker boundaries. They verify application behavior but do not measure real handwriting accuracy, frame rate, or long-session browser memory usage. Node's experimental VM Modules warning is expected for this test setup.
 

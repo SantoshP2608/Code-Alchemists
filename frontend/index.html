@@ -1,24 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CalcInk — Draw & Calculate</title>
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <div class="app-shell">
     <header class="app-header">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">✎</span>
-        <div><h1>CalcInk</h1><p>Your space to think.</p></div>
+        <img class="brand-mark" src="./assets/calcink-logo.png" alt="CalcInk logo">
+        <div>
+          <h1>CalcInk</h1>
+          <p>Write. Solve. Explore.</p>
+        </div>
       </div>
       <div class="header-actions">
-        <span id="answer" class="app-status" role="status" aria-live="polite">Loading model...</span>
-        <button id="historyBtn" class="history-button" type="button"
-                aria-haspopup="dialog" aria-controls="historyPanel" aria-expanded="false">
-          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7"/><path d="M12 7v5l3 2"/>
+        <div class="model-status" aria-busy="true">
+          <span class="lattice-loader" aria-hidden="true">
+            <i></i><i></i><i></i>
+            <i></i><i></i><i></i>
+            <i></i><i></i><i></i>
+          </span>
+
+          <span id="answer" class="app-status" role="status" aria-live="polite">
+            Loading model...
+          </span>
+        </div>
+        <button id="historyBtn" class="history-button" type="button" aria-haspopup="dialog" aria-controls="historyPanel"
+          aria-expanded="false">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7" />
+            <path d="M12 7v5l3 2" />
           </svg>
           <span>History</span>
         </button>
@@ -27,33 +44,80 @@
 
     <main class="workspace" aria-label="Math drawing workspace">
       <div class="tool-bar" role="group" aria-label="Drawing tools">
-        <button id="pencilBtn" class="tool-btn active" type="button" title="Pencil" aria-label="Pencil" aria-pressed="true">✏️</button>
-        <button id="highlighterBtn" class="tool-btn" type="button" title="Highlighter (annotation ink)" aria-label="Highlighter" aria-pressed="false">
+        <button id="pencilBtn" class="tool-btn active" type="button" title="Pencil" aria-label="Pencil"
+          aria-pressed="true">✏️</button>
+        <button id="highlighterBtn" class="tool-btn" type="button" title="Highlighter (annotation ink)"
+          aria-label="Highlighter" aria-pressed="false">
           <svg viewBox="0 0 24 24" width="23" height="23" aria-hidden="true" fill="none">
-            <path d="m14 3 7 7-9 9-7-7z" fill="currentColor"/>
-            <path d="m5 12 7 7-3 3H2v-7z" fill="#e2b23b"/>
-            <path d="M2 22h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="m14 3 7 7-9 9-7-7z" fill="currentColor" />
+            <path d="m5 12 7 7-3 3H2v-7z" fill="#e2b23b" />
+            <path d="M2 22h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </button>
-        <button id="eraserBtn" class="tool-btn" type="button" title="Eraser" aria-label="Eraser" aria-pressed="false">🧽</button>
-        <button id="panBtn" class="tool-btn" type="button" title="Move canvas (or hold Space and drag)" aria-label="Move canvas" aria-pressed="false">
-          <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-9a1.5 1.5 0 0 1 3 0v9-7a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v7c0 4-2.8 7-7 7h-1c-2 0-3.5-.8-4.7-2.5L3.8 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/>
+        <button id="eraserBtn" class="tool-btn" type="button" title="Eraser" aria-label="Eraser"
+          aria-pressed="false">🧽</button>
+        <button id="panBtn" class="tool-btn" type="button" title="Move canvas (or hold Space and drag)"
+          aria-label="Move canvas" aria-pressed="false">
+          <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M8 13V6a1.5 1.5 0 0 1 3 0v6-9a1.5 1.5 0 0 1 3 0v9-7a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v7c0 4-2.8 7-7 7h-1c-2 0-3.5-.8-4.7-2.5L3.8 14a1.5 1.5 0 0 1 2.4-1.8L8 14" />
           </svg>
         </button>
         <span class="tool-divider" aria-hidden="true"></span>
-        <select id="eraserMode" aria-label="Eraser mode" title="Eraser mode">
-          <option value="stroke">Stroke eraser</option><option value="pixel">Pixel eraser</option>
-        </select>
-        <div class="ink-palette" role="group" aria-label="Drawing colours">
-          <button id="colourDark" class="colour-swatch" type="button" style="--ink: #252737" aria-label="Dark ink" title="Dark" aria-pressed="true"></button>
-          <button id="colourPurple" class="colour-swatch" type="button" style="--ink: #6552cc" aria-label="Purple ink" title="Purple" aria-pressed="false"></button>
-          <button id="colourBlue" class="colour-swatch" type="button" style="--ink: #2475d0" aria-label="Blue ink" title="Blue" aria-pressed="false"></button>
-          <button id="colourGreen" class="colour-swatch" type="button" style="--ink: #19845b" aria-label="Green ink" title="Green" aria-pressed="false"></button>
-          <button id="colourYellow" class="colour-swatch" type="button" style="--ink: #e2b23b" aria-label="Yellow ink" title="Yellow" aria-pressed="false"></button>
-          <button id="colourPink" class="colour-swatch" type="button" style="--ink: #d44979" aria-label="Pink ink" title="Pink" aria-pressed="false"></button>
+        <div class="eraser-dropdown">
+          <!-- Keep this select for the existing drawing logic -->
+          <select id="eraserMode" hidden>
+            <option value="stroke">Stroke eraser</option>
+            <option value="pixel">Pixel eraser</option>
+          </select>
+
+          <button id="eraserMenuBtn" class="eraser-trigger" type="button" aria-expanded="false"
+            aria-controls="eraserMenu">
+            <span id="eraserModeLabel">Stroke eraser</span>
+            <span class="eraser-chevron" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </button>
+
+          <div id="eraserMenu" class="eraser-menu" role="group" aria-label="Eraser mode" hidden>
+            <button type="button" class="eraser-option" data-mode="stroke" aria-pressed="true">
+              <span>
+                <strong>Stroke eraser</strong>
+                <small>Remove an entire stroke</small>
+              </span>
+              <span class="eraser-check" aria-hidden="true">✓</span>
+            </button>
+
+            <button type="button" class="eraser-option" data-mode="pixel" aria-pressed="false">
+              <span>
+                <strong>Pixel eraser</strong>
+                <small>Erase only the area you touch</small>
+              </span>
+              <span class="eraser-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
         </div>
-        <span class="tool-hint">End each equation with = · Leave space between equations</span>
+        <div class="ink-palette" role="group" aria-label="Drawing colours">
+          <button id="colourDark" class="colour-swatch" type="button" style="--ink: #252737" aria-label="Dark ink"
+            title="Dark" aria-pressed="true"></button>
+          <button id="colourPurple" class="colour-swatch" type="button" style="--ink: #6552cc" aria-label="Purple ink"
+            title="Purple" aria-pressed="false"></button>
+          <button id="colourBlue" class="colour-swatch" type="button" style="--ink: #2475d0" aria-label="Blue ink"
+            title="Blue" aria-pressed="false"></button>
+          <button id="colourGreen" class="colour-swatch" type="button" style="--ink: #19845b" aria-label="Green ink"
+            title="Green" aria-pressed="false"></button>
+          <button id="colourYellow" class="colour-swatch" type="button" style="--ink: #e2b23b" aria-label="Yellow ink"
+            title="Yellow" aria-pressed="false"></button>
+          <button id="colourPink" class="colour-swatch" type="button" style="--ink: #d44979" aria-label="Pink ink"
+            title="Pink" aria-pressed="false"></button>
+        </div>
+        <span class="tool-hint">
+          Write an equation ending in = to see its answer
+        </span>
       </div>
 
       <div class="drawing-area">
@@ -63,7 +127,8 @@
           <output id="sizeValue" for="sizeSlider">5</output>
         </div>
         <div class="canvas-wrapper" id="canvasWrapper">
-          <canvas id="canvas" width="900" height="400" aria-label="Write equations. Use the Hand tool to move around the infinite canvas."></canvas>
+          <canvas id="canvas" width="900" height="400"
+            aria-label="Write equations. Use the Hand tool to move around the infinite canvas."></canvas>
           <output id="canvasAnswer" aria-label="Calculated answer" aria-live="polite" hidden></output>
           <div id="eraserCursor" aria-hidden="true" hidden></div>
         </div>
@@ -71,14 +136,21 @@
 
       <footer class="workspace-footer">
         <div class="controls" role="group" aria-label="Drawing actions">
-          <button id="undoBtn" type="button" aria-label="Undo last action" aria-keyshortcuts="Control+Z Meta+Z" title="Undo (Ctrl/Cmd+Z; last 100 actions)" disabled><span aria-hidden="true">↶</span> Undo</button>
-          <button id="redoBtn" type="button" aria-label="Redo last action" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" title="Redo (Ctrl/Cmd+Shift+Z; Ctrl+Y on Windows)" disabled><span aria-hidden="true">↷</span> Redo</button>
-          <button id="clearBtn" type="button" aria-label="Clear all ink" title="Clear all ink (undoable)"><span aria-hidden="true">⌫</span> Clear</button>
+          <button id="undoBtn" type="button" aria-label="Undo last action" aria-keyshortcuts="Control+Z Meta+Z"
+            title="Undo (Ctrl/Cmd+Z; last 100 actions)" disabled><span aria-hidden="true">↶</span> Undo</button>
+          <button id="redoBtn" type="button" aria-label="Redo last action"
+            aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" title="Redo (Ctrl/Cmd+Shift+Z; Ctrl+Y on Windows)"
+            disabled><span aria-hidden="true">↷</span> Redo</button>
+          <button id="clearBtn" type="button" aria-label="Clear all ink" title="Clear all ink (undoable)"><span
+              aria-hidden="true">⌫</span> Clear</button>
         </div>
-        <p class="navigation-hint">Space + drag to move · Ctrl + scroll to zoom</p>
+        <p class="navigation-hint">Ctrl + scroll to zoom</p>
         <div class="zoom-controls" role="group" aria-label="Canvas view">
           <button id="zoomOutBtn" type="button" aria-label="Zoom out" title="Zoom out">−</button>
-          <output id="zoomValue" aria-label="Zoom level">100%</output>
+          <label class="zoom-input-wrap">
+            <input id="zoomValue" type="number" min="25" max="300" step="1" value="100" aria-label="Zoom percentage">
+            <span aria-hidden="true">%</span>
+          </label>
           <button id="zoomInBtn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
           <button id="resetViewBtn" type="button" aria-label="Return to canvas origin" title="Reset view">⌂</button>
         </div>
@@ -91,8 +163,11 @@
       <h2 id="historyHeading">Calculation history</h2>
       <button id="closeHistoryBtn" type="button" aria-label="Close history" title="Close history">×</button>
     </div>
-    <div class="history-meta"><p>Latest 10 evaluations · Kept after edits and Clear</p><span id="historyCount" aria-label="History entries out of 10">0 / 10</span></div>
-    <p id="historyEmpty">Your evaluated equations and answers will appear here.</p>
+    <div class="history-meta">
+      <p>Latest equations · Updates follow your edits</p><span id="historyCount"
+        aria-label="History entries out of 10">0 / 10</span>
+    </div>
+    <p id="historyEmpty">Your equations and answers will appear here.</p>
     <ol id="calculationHistory" aria-label="Previous calculations, newest first"></ol>
   </dialog>
   <canvas id="preview" hidden></canvas>
@@ -100,5 +175,143 @@
     if (location.protocol === 'file:') document.getElementById('answer').textContent = 'Run npm run dev to open CalcInk.';
   </script>
   <script type="module" src="../backend/app.js"></script>
+  <script>
+    (() => {
+      function setupLoader() {
+        const text = document.getElementById("answer");
+        const container = text?.closest(".model-status");
+        const loader = container?.querySelector(".lattice-loader");
+
+        if (!text || !container || !loader) return;
+
+        function update() {
+          const message = text.textContent.trim();
+
+          const busy =
+            !/\bready\b/i.test(message) &&
+            /^(loading|initializing|writing|processing|calculating)\b/i
+              .test(message);
+
+          container.setAttribute("aria-busy", String(busy));
+          loader.hidden = !busy;
+        }
+
+        new MutationObserver(update).observe(text, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+
+        update();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", setupLoader, {
+          once: true
+        });
+      } else {
+        setupLoader();
+      }
+    })();
+  </script>
+  <script>
+    (() => {
+      const dropdown = document.querySelector(".eraser-dropdown");
+      const trigger = document.getElementById("eraserMenuBtn");
+      const menu = document.getElementById("eraserMenu");
+      const select = document.getElementById("eraserMode");
+      const label = document.getElementById("eraserModeLabel");
+      const options = [...menu.querySelectorAll("[data-mode]")];
+
+      function syncSelection() {
+        label.textContent = select.options[select.selectedIndex].text;
+
+        options.forEach(option => {
+          option.setAttribute(
+            "aria-pressed",
+            String(option.dataset.mode === select.value)
+          );
+        });
+      }
+
+      function closeMenu(returnFocus = false) {
+        menu.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+        if (returnFocus) trigger.focus();
+      }
+
+      function openMenu() {
+        menu.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+
+        const selected = options.find(
+          option => option.dataset.mode === select.value
+        );
+        (selected || options[0]).focus();
+      }
+
+      trigger.addEventListener("click", () => {
+        if (menu.hidden) openMenu();
+        else closeMenu();
+      });
+
+      options.forEach(option => {
+        option.addEventListener("click", () => {
+          select.value = option.dataset.mode;
+
+          // Notify the existing eraser controller.
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+
+          syncSelection();
+          closeMenu(true);
+        });
+      });
+
+      select.addEventListener("change", syncSelection);
+
+      document.addEventListener("click", event => {
+        if (!dropdown.contains(event.target)) closeMenu();
+      });
+
+      dropdown.addEventListener("focusout", event => {
+        if (!dropdown.contains(event.relatedTarget)) closeMenu();
+      });
+
+      dropdown.addEventListener("keydown", event => {
+        if (event.key === "Escape" && !menu.hidden) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMenu(true);
+          return;
+        }
+
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          return;
+        }
+
+        event.preventDefault();
+
+        if (menu.hidden) {
+          openMenu();
+          return;
+        }
+
+        const current = options.indexOf(document.activeElement);
+        let next;
+
+        if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = options.length - 1;
+        else {
+          const direction = event.key === "ArrowDown" ? 1 : -1;
+          next = (current + direction + options.length) % options.length;
+        }
+
+        options[next].focus();
+      });
+
+      syncSelection();
+    })();
+  </script>
 </body>
+
 </html>

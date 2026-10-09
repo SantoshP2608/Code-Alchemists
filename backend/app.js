@@ -101,7 +101,9 @@ function viewportScale() {
 
 function syncViewport() {
     const label = document.getElementById("zoomValue");
-    if (label) label.textContent = `${Math.round(camera.zoom * 100)}%`;
+    if (label && document.activeElement !== label) {
+        label.value = String(Math.round(camera.zoom * 100));
+    }
     document.getElementById("zoomOutBtn").disabled = camera.zoom <= 0.25;
     document.getElementById("zoomInBtn").disabled = camera.zoom >= 3;
     const scale = viewportScale();
@@ -388,6 +390,7 @@ createEvaluator().then(function (module) {
 
     if (modelReady) {
         if (drawingVersion === 0) display.textContent = "Handwriting model ready";
+        else updateDrawingStatus();
         scheduleRecognition();
     }
 }).catch(function (error) {
@@ -404,7 +407,7 @@ function showAnswer(latex, equation) {
         console.log("Formatted:", expression);
 
         if (expression === null) {
-            display.textContent = "";
+            display.textContent = "Continue writing — end with =";
             return;
         }
 
@@ -636,6 +639,15 @@ function recordDrawingAction(action) {
     redoActions.length = 0;
 }
 
+function updateDrawingStatus() {
+    if (!modelReady || !evaluator) {
+        display.textContent = "Loading model...";
+        return;
+    }
+    display.textContent = [...equations.values()].some(item => item.strokes.length && item.dirty)
+        ? "Processing..." : "Ready";
+}
+
 function invalidateDrawing(equation = null) {
     if (equation) invalidateEquation(equation);
     const changed = synchronizeEquations();
@@ -644,7 +656,7 @@ function invalidateDrawing(equation = null) {
     clearTimeout(recognitionTimer);
     recognitionPending = false;
     drawingVersion += 1;
-    display.textContent = "";
+    updateDrawingStatus();
     clearPreview();
 }
 
@@ -943,6 +955,9 @@ canvas.addEventListener("pointerdown", function (event) {
         drawX: point.x,
         drawY: point.y
     };
+    if (activeTool === "pencil" && modelReady && evaluator) {
+        display.textContent = "Writing...";
+    }
     updateHistoryButtons();
 
     if (activeTool === "highlighter") redrawInk();
@@ -1145,6 +1160,7 @@ function sendNextRecognition() {
     recognitionBusy = true;
     recognitionVersion = nextRequestId++;
     activeRecognition = { equation, revision: equation.revision };
+    display.textContent = "Calculating...";
     worker.postMessage({ strokes: equation.strokes, version: recognitionVersion });
 }
 
@@ -1156,6 +1172,7 @@ worker.onmessage = function (event) {
 
         if (evaluator) {
             if (drawingVersion === 0) display.textContent = "Handwriting model ready";
+        else updateDrawingStatus();
             scheduleRecognition();
         }
 
@@ -1284,4 +1301,39 @@ document.getElementById("clearBtn").addEventListener("click", function () {
     recordDrawingAction({ type: "clear", strokes: strokes.slice() });
     strokes.length = 0;
     historyChanged();
+    if (modelReady && evaluator) {
+        display.textContent = "Ready";
+    }
+});
+
+const zoomInput = document.getElementById("zoomValue");
+
+function applyTypedZoom() {
+    const percentage = zoomInput.valueAsNumber;
+
+    if (Number.isFinite(percentage)) {
+        const clamped = Math.max(25, Math.min(300, percentage));
+        zoomFromCenter((clamped / 100) / camera.zoom);
+    }
+
+    zoomInput.value = String(Math.round(camera.zoom * 100));
+}
+
+zoomInput.addEventListener("change", applyTypedZoom);
+
+zoomInput.addEventListener("keydown", event => {
+    // Keep typing separate from canvas keyboard shortcuts.
+    event.stopPropagation();
+
+    if (event.key === "Enter") {
+        event.preventDefault();
+        applyTypedZoom();
+        zoomInput.blur();
+    }
+
+    if (event.key === "Escape") {
+        event.preventDefault();
+        zoomInput.value = String(Math.round(camera.zoom * 100));
+        zoomInput.blur();
+    }
 });
