@@ -65,7 +65,7 @@ The examples show the expected arithmetic results. Actual recognition depends on
 | Clear | **Clear** button; clearing ink is undoable |
 | View calculations | **History** button; close with its close button, Escape, or an outside click |
 
-Keep a visible gap between equations. Grouping uses stroke geometry rather than fixed notebook rows, so overlapping or tightly packed equations can be grouped incorrectly.
+Keep a visible gap between equations. Grouping uses stroke geometry rather than fixed notebook rows. Within an equation, larger handwriting allows wider symbol gaps, and aligned equals strokes stay together. Overlapping or tightly packed independent equations can still be grouped incorrectly.
 
 ## How it works
 
@@ -161,8 +161,7 @@ To download assets separately or retry an interrupted download, run `npm run mod
 Code-Alchemists/
 ├── frontend/
 │   ├── index.html              # App layout and controls
-│   ├── style.css               # Responsive notebook styling
-│   └── script.js               # Older implementation; not the active controller
+│   └── style.css               # Responsive notebook styling
 ├── backend/                    # Browser-side processing, despite the folder name
 │   ├── app.js                  # Drawing, equations, history, and navigation
 │   ├── recognition.worker.js   # Model startup and recognition requests
@@ -185,7 +184,7 @@ Code-Alchemists/
 └── .nvmrc
 ```
 
-The active page loads **`backend/app.js`**. Despite its name, `backend/` contains the browser-side application logic; there is no running Python backend. The legacy `backend/requirements.txt` is not needed for the active app.
+The active page loads **`backend/app.js`**. Despite its name, `backend/` contains the browser-side application logic; there is no running Python backend. Install dependencies from the project root using `npm ci`.
 
 ## Tests
 
@@ -193,7 +192,7 @@ The active page loads **`backend/app.js`**. Despite its name, `backend/` contain
 npm test
 ```
 
-**92 automated tests pass after merging the frontend, model-loading, and history changes.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
+**95 automated tests pass after merging the frontend, grouping, model-loading and history fixes.** Coverage includes large handwriting gaps at different zoom levels, equals-bar grouping, separate equations, drawing history, both eraser modes, colours and highlighters, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
 
 Tests use controlled DOM, canvas, and worker boundaries. They verify application behavior but do not measure real handwriting accuracy, frame rate, or long-session browser memory usage. Node's experimental VM Modules warning is expected for this test setup.
 

@@ -1351,6 +1351,49 @@ function outputs(app) {
     return [app.canvasAnswer, ...app.canvasWrapper.children].filter(item => !item.hidden);
 }
 
+test("large handwriting keeps widely spaced operators and equals strokes in one request", async () => {
+    for (const zoom of [0.25, 1, 2]) {
+        const app = await setup();
+        if (zoom !== 1) app.canvas.emit("wheel", { ctrlKey: true, deltaY: -Math.log(zoom) / 0.002,
+            clientX: 450, clientY: 200 });
+        drawLine(app, 100, 80, 140, 295); // Large digit, about the screenshot's height.
+        drawLine(app, 220, 125, 280, 230);
+        drawLine(app, 350, 80, 490, 260);
+        drawLine(app, 625, 130, 691, 124); // 135px gap, previously split off.
+        drawLine(app, 630, 158, 690, 155);
+        app.tick();
+        assert.equal(app.worker.requests.length, 1);
+        assert.equal(app.worker.requests[0].strokes.length, 5);
+        assert.equal(new Set(app.worker.requests[0].strokes.map(stroke => stroke.equationId)).size, 1);
+        solveNext(app, "4\\times2=");
+        assert.equal(app.worker.requests.length, 1);
+    }
+});
+
+test("a wide equals sign joins its two bars without absorbing a distant row", async () => {
+    const app = await setup();
+    drawLine(app, 100, 100, 166, 94);
+    drawLine(app, 105, 128, 165, 125);
+    drawLine(app, 100, 250, 130, 290);
+    app.tick();
+    const equals = solveNext(app, "=");
+    assert.equal(equals.strokes.length, 2);
+    const row = solveNext(app, "2=");
+    assert.equal(row.strokes.length, 1);
+    assert.notEqual(equals.strokes[0].equationId, row.strokes[0].equationId);
+});
+
+test("large gap tolerance remains bounded and small neighbouring rows stay separate", async () => {
+    const app = await setup();
+    drawLine(app, 50, 100, 70, 500);
+    drawLine(app, 400, 100, 420, 500); // 330px gap exceeds even the large-ink cap.
+    drawLine(app, 800, 100, 820, 120);
+    drawLine(app, 800, 145, 820, 165); // Small digits use the original row tolerance.
+    app.tick();
+    for (let i = 0; i < 4; i++) assert.equal(solveNext(app, "1=").strokes.length, 1);
+    assert.equal(app.worker.requests.length, 4);
+});
+
 test("separate rows queue independent recognition and retain every inline answer", async () => {
     const app = await setup();
     drawLine(app, 50, 100, 70, 140);

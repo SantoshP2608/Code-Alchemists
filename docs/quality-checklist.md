@@ -21,6 +21,14 @@ recognition and memory observations in that historical audit do not validate Tex
 
 ### Initial migration checks
 
+The later gap-grouping update raises the horizontal cap for large handwriting
+from 120 to 240 visible pixels and admits aligned second equals bars. All 93
+tests pass, including large gaps at 25%, 100% and 200% zoom and separation of
+nearby small rows and distant equations. A Chrome reproduction of the widely
+spaced drawing now sends all seven strokes in one recognition request, both
+online and offline. TexTeller still misreads that synthetic drawing; this check
+confirms grouping behavior, not recognition accuracy.
+
 - `npm test`: 88 tests pass, including decoder prefixes, last-position logits,
   end-token handling, token limits, failure cleanup, normalization and padding.
 - `npm run build`: succeeds with the worker and ONNX WASM runtime bundled.

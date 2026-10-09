@@ -1,12 +1,12 @@
 # CalcInk merged project
 
-Based on upstream commit f4efff4, with the uploaded frontend preserved.
+Based on upstream commit 89d5d0d, with the uploaded frontend preserved.
 
 Preserved: TexTeller ONNX migration, tokenizer and preprocessing, model download script, persistent evaluation history, teal notebook theme, logo and background, lattice loader, jelly tool selection, animated history, shiny title, custom eraser menu, editable zoom.
 
 Fixed: empty canvas status after Clear/Undo; startup status remains Loading until both model and calculator are available. Updated tests for visible status messages and zoom input; added typed-zoom and Clear-during-recognition checks.
 
-Validation: all 92 automated tests pass; npm run build passes using downloaded model files. Real browser handwriting inference and visual layout were not exercised here.
+Validation: all 95 automated tests pass; npm run build passes using downloaded model files. Real browser handwriting inference and visual layout were not exercised here.
 
 ## Use
 
