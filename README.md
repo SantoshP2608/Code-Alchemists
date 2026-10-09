@@ -88,7 +88,7 @@ The drawing controller stores stroke coordinates in world space. Each equation h
 
 A dedicated **Web Worker** prepares the equation's strokes using **OffscreenCanvas**: it renders black equation ink on white, crops the white border, resizes proportionally to fit 448 × 448, and normalizes grayscale pixels using TexTeller's mean (0.9545467) and standard deviation (0.15394445). Bottom/right padding is zero in normalized tensor space. Canvas high-quality interpolation approximates the upstream bicubic resize.
 
-**TexTeller ONNX** runs its quantized encoder and uncached decoder through **ONNX Runtime Web**, using Hugging Face Tokenizers to decode LaTeX. The adapter removes matching outer math delimiters such as `\[...\]` before passing the expression to the existing formatter. Greedy decoding ends at the model's end token; requests exceeding 256 generated tokens report an error instead of calculating a truncated expression. Pending equations are processed sequentially, and revision checks prevent outdated responses from replacing newer edits. Preprocessing and inference are separated from the drawing thread.
+**TexTeller ONNX** runs its quantized encoder and uncached decoder through the CPU-only **ONNX Runtime Web** build, using Hugging Face Tokenizers to decode LaTeX. The adapter removes matching outer math delimiters such as `\[...\]` before passing the expression to the existing formatter. Greedy decoding ends at the model's end token; requests exceeding 256 generated tokens report an error instead of calculating a truncated expression. Recognition starts after a 300 ms pause. Editing or clearing the active equation cancels stale decoding at the next inference checkpoint, so it can process the latest drawing sooner. Pending equations are processed sequentially, and revision checks prevent outdated responses from replacing newer edits. Preprocessing and inference are separated from the drawing thread.
 
 ### 3. Format and calculate
 
@@ -123,7 +123,7 @@ Answers are display elements, so they never become recognition input. Editing in
 | Hosting | Vercel |
 | Automated checks | Node.js test runner |
 
-The TexTeller quantized encoder and decoder total approximately **316 MB**. Before development or building, npm downloads missing assets from Hugging Face into the ignored `public/models/texteller/` directory. Completed files are reused on subsequent runs. The browser loads these files from the app's own origin; inference does not require browser requests to Hugging Face. Model assets and the inference runtime are loaded before recognition can begin. A single WASM inference thread runs inside the worker, without requiring cross-origin isolation headers.
+The TexTeller quantized encoder and decoder total approximately **316 MB**. Before development or building, npm downloads missing assets from Hugging Face into the ignored `public/models/texteller/` directory. Completed files are reused on subsequent runs. The browser loads these files from the app's own origin; inference does not require browser requests to Hugging Face. Model assets and the inference runtime are loaded before recognition can begin. Cross-origin-isolated browsers use up to four WASM threads, bounded by the reported CPU count; other environments use one thread. Vite development/preview and `vercel.json` provide the required COOP/COEP headers. Runtime modules and binaries are served locally, including the module needed to start WASM thread workers.
 
 ## Run locally
 
@@ -181,6 +181,7 @@ Code-Alchemists/
 ├── package.json
 ├── package-lock.json
 ├── vite.config.js
+├── vercel.json                 # Headers enabling WASM threads on Vercel
 └── .nvmrc
 ```
 
@@ -192,7 +193,7 @@ The active page loads **`backend/app.js`**. Despite its name, `backend/` contain
 npm test
 ```
 
-**95 automated tests pass after merging the frontend, grouping, model-loading and history fixes.** Coverage includes large handwriting gaps at different zoom levels, equals-bar grouping, separate equations, drawing history, both eraser modes, colours and highlighters, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
+**99 automated tests pass after the latency, frontend, grouping, model-loading and history fixes.** Coverage includes cancellation and tensor cleanup, threaded-runtime configuration and fallback, large handwriting gaps at different zoom levels, equals-bar grouping, separate equations, drawing history, both eraser modes, colours and highlighters, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, and TexTeller decoding.
 
 Tests use controlled DOM, canvas, and worker boundaries. They verify application behavior but do not measure real handwriting accuracy, frame rate, or long-session browser memory usage. Node's experimental VM Modules warning is expected for this test setup.
 

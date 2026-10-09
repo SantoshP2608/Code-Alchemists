@@ -1,5 +1,5 @@
 // Release every tracked tensor, including intermediate outputs on error paths.
-export async function recognizeWithCleanup(engine, input) {
+export async function recognizeWithCleanup(engine, input, options) {
     const tensors = new Set();
     let recognitionFailed = false;
     const track = values => {
@@ -9,7 +9,7 @@ export async function recognizeWithCleanup(engine, input) {
         return values;
     };
     try {
-        return await engine.recognize(input, track);
+        return await engine.recognize(input, track, options);
     } catch (error) {
         recognitionFailed = true;
         throw error;

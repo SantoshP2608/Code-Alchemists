@@ -61,6 +61,10 @@ function equationAt(point) {
 }
 
 function invalidateEquation(equation) {
+    if (activeRecognition?.equation === equation && !activeRecognition.cancelRequested) {
+        activeRecognition.cancelRequested = true;
+        worker.postMessage({ type: "cancel", version: recognitionVersion });
+    }
     equation.revision++;
     equation.dirty = equation.strokes.length > 0;
     equation.output.hidden = true;
@@ -1156,7 +1160,7 @@ function scheduleRecognition() {
     if (pageClosed) return;
     recognitionPending = [...equations.values()].some(equation => equation.dirty);
     if (!recognitionPending) return;
-    recognitionTimer = setTimeout(sendNextRecognition, 600);
+    recognitionTimer = setTimeout(sendNextRecognition, 300);
 }
 
 function sendNextRecognition() {
@@ -1180,7 +1184,7 @@ worker.onmessage = function (event) {
 
         if (evaluator) {
             if (drawingVersion === 0) display.textContent = "Handwriting model ready";
-        else updateDrawingStatus();
+            else updateDrawingStatus();
             scheduleRecognition();
         }
 
@@ -1218,14 +1222,14 @@ worker.onmessage = function (event) {
         return;
     }
 
-    if (message.type !== "result" && message.type !== "error") return;
+    if (message.type !== "result" && message.type !== "error" && message.type !== "cancelled") return;
     recognitionBusy = false;
     recognitionVersion = null;
 
     if (isCurrent) {
         if (message.type === "result") {
             showAnswer(message.latex, job.equation);
-        } else {
+        } else if (message.type === "error") {
             display.textContent =
                 "Recognition failed: " + message.message;
         }

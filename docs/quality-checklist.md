@@ -6,6 +6,29 @@ recognition and memory observations in that historical audit do not validate Tex
 
 ## TexTeller migration verification — 9 October 2026
 
+### Recognition latency and frontend wording
+
+- The history panel describes the independent queue of evaluations, and merge
+  notes correctly record that the frontend merge was pushed to GitHub.
+- Recognition debounce is 300 ms rather than 600 ms. Edits and Clear request
+  cancellation of the affected in-flight recognition; cancellation yields
+  between model runs and releases tracked tensors before starting the next job.
+- The runtime uses the smaller CPU-only build, with its `.mjs` and WASM served
+  separately. Cross-origin isolation enables up to four inference threads.
+  Vite and Vercel header configuration are included, with a one-thread fallback.
+- Chrome, 12 reported CPU cores, identical `1=` pointer drawing: baseline times
+  after the final stroke were 10,514, 10,526 and 8,659 ms; revised four-thread
+  times were 3,095, 3,145 and 3,040 ms. Mean latency fell from 9.90 s to 3.09 s
+  (about 69%). These are local measurements, not guarantees for other devices
+  or longer expressions. With isolation disabled, revised recognition still
+  worked, taking 7,176, 5,631 and 5,464 ms in the one-thread fallback test.
+- All 99 automated tests pass and the production build succeeds. Formatter,
+  C++ evaluator, calculator loader and calculator WASM remain unchanged.
+- A Chrome edit-during-inference check cancelled the old job in 1,321 ms and
+  started the replacement immediately after acknowledgement. Only the latest
+  result entered history. A subsequent recognition worked with the browser
+  offline; no page errors were reported.
+
 ### Follow-up: model loading and evaluation history
 
 - Model assets now download during npm setup and are served from the app's own

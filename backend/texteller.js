@@ -1,9 +1,12 @@
-import * as ort from "onnxruntime-web";
+import * as ort from "onnxruntime-web/wasm";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { MODEL_ASSET_PATH } from "./texteller-config.js";
 
 const MODEL_URL = `${import.meta.env?.BASE_URL ?? "/"}${MODEL_ASSET_PATH}`;
-ort.env.wasm.numThreads = 1;
+// Shared WASM memory requires isolation headers. Keep a one-thread fallback
+// for hosts/browsers without it, and leave CPU capacity for drawing.
+ort.env.wasm.numThreads = globalThis.crossOriginIsolated
+    ? Math.max(1, Math.min(4, globalThis.navigator?.hardwareConcurrency || 1)) : 1;
 ort.env.wasm.proxy = false;
 
 // TexTeller can wrap a formula in display/inline math delimiters. These are
@@ -59,10 +62,22 @@ export class TexTellerEngine {
         await Promise.allSettled([this.encoderSession?.release(), this.decoderSession?.release()]);
     }
 
-    async recognize(input, track) {
+    async recognize(input, track, { isCancelled } = {}) {
+        async function checkpoint() {
+            if (!isCancelled) return;
+            // Yield to worker messages so an edit can interrupt stale decoding.
+            await new Promise(resolve => setTimeout(resolve, 0));
+            if (isCancelled()) {
+                const error = new Error("Recognition cancelled");
+                error.name = "AbortError";
+                throw error;
+            }
+        }
+        await checkpoint();
         const pixels = track({ pixel_values: new ort.Tensor("float32", input.tensor, [1, 1, 448, 448]) });
         const encoded = track(await this.encoderSession.run(pixels));
         pixels.pixel_values.dispose();
+        await checkpoint();
         const hidden = encoded.last_hidden_state;
         if (!hidden) throw new Error("TexTeller encoder did not return last_hidden_state");
         const ids = [this.startToken];
@@ -73,6 +88,7 @@ export class TexTellerEngine {
             });
             const outputs = track(await this.decoderSession.run(feeds));
             feeds.input_ids.dispose();
+            await checkpoint();
             const logits = outputs.logits;
             if (!logits) throw new Error("TexTeller decoder did not return logits");
             const size = logits.dims.at(-1);

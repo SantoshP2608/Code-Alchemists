@@ -128,8 +128,10 @@ async function setup({
             disconnect() { observerDisconnected = true; }
         },
         Worker: class {
-            constructor() { worker = this; this.requests = []; }
-            postMessage(message) { this.requests.push(structuredClone(message)); }
+            constructor() { worker = this; this.requests = []; this.cancellations = []; }
+            postMessage(message) {
+                (message.type === "cancel" ? this.cancellations : this.requests).push(structuredClone(message));
+            }
             terminate() { this.terminated = true; }
         }
     });
@@ -1803,4 +1805,30 @@ test("writing shows activity and Clear returns to Ready despite a stale worker r
     app.message({ type: "result", version: request.version, latex: "2+3=" });
     assert.equal(app.answer.textContent, "Ready");
     assert.equal(app.canvasAnswer.hidden, true);
+});
+
+test("edits cancel stale recognition once and cancellation starts the latest request", async () => {
+    const app = await setup();
+    app.stroke(10); app.tick();
+    const first = app.worker.requests[0];
+    app.stroke(20); app.tick();
+    assert.deepEqual(app.worker.cancellations, [{ type: "cancel", version: first.version }]);
+    assert.equal(app.worker.requests.length, 1);
+    app.message({ type: "cancelled", version: first.version });
+    assert.equal(app.worker.requests.length, 2);
+    const current = app.worker.requests[1];
+    assert.equal(current.strokes.length, 2);
+    app.message({ type: "cancelled", version: first.version });
+    assert.equal(app.worker.requests.length, 2);
+    assert.equal(app.answer.textContent, "Calculating...");
+    app.message({ type: "result", version: current.version, latex: "2+3=" });
+    assert.equal(app.historyCount.textContent, "1 / 10");
+    app.stroke(30); app.tick();
+    const removed = app.worker.requests[2];
+    app.clearBtn.emit("click");
+    assert.deepEqual(app.worker.cancellations.at(-1), { type: "cancel", version: removed.version });
+    app.message({ type: "cancelled", version: removed.version });
+    assert.equal(app.worker.requests.length, 3);
+    assert.equal(app.answer.textContent, "Ready");
+    assert.equal(app.historyCount.textContent, "1 / 10");
 });

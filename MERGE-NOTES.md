@@ -6,16 +6,16 @@ Preserved: TexTeller ONNX migration, tokenizer and preprocessing, model download
 
 Fixed: empty canvas status after Clear/Undo; startup status remains Loading until both model and calculator are available. Updated tests for visible status messages and zoom input; added typed-zoom and Clear-during-recognition checks.
 
-Validation: all 95 automated tests pass; npm run build passes using downloaded model files. Real browser handwriting inference and visual layout were not exercised here.
+Validation of merge commit b6ae6c0: all 95 automated tests and the production build passed. Chrome verified model startup, a drawn `1=`, history retention after Clear, the custom eraser selector, editable zoom, and mobile layout without horizontal overflow.
 
 ## Use
 
-1. Extract this ZIP into a NEW folder. Do not overwrite your original folder or its .git directory.
-2. Open Code-Alchemists-merged in VS Code.
-3. Run npm ci, then npm run dev. The first run downloads TexTeller assets; internet access is required. The archive excludes node_modules, dist, and downloaded models.
+1. Clone the repository, or update a clean existing checkout using `git pull --ff-only`.
+2. Open the project folder in VS Code.
+3. Run npm ci, then npm run dev. The first run downloads TexTeller assets; internet access is required. Generated dependencies, build output and downloaded models are excluded from Git.
 4. Check writing, Clear, erasers, zoom and History in your browser.
-5. To upload the merged commit, run git push origin main from this extracted project. If GitHub has received newer changes, fetch and merge those before pushing; do not force push.
+5. Commit and push new changes from your checkout. Fetch and integrate newer remote changes before pushing; do not force push.
 
-The Git history is included; the frontend merge is committed locally. Nothing has been pushed or deployed.
+The frontend merge has been pushed to the repository's `main` branch as b6ae6c0. Production deployment status was not checked in this review.
 
 Model files are served locally after download. Offline reload is still not implemented because the project has no service worker.

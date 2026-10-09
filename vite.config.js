@@ -4,8 +4,14 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
+const isolationHeaders = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp"
+};
 
 export default defineConfig({
+  server: { headers: isolationHeaders },
+  preview: { headers: isolationHeaders },
   worker: {
     format: "es"
   },

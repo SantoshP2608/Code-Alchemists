@@ -10,7 +10,8 @@ import * as modelConfig from "../backend/texteller-config.js";
 
 const source = await readFile(new URL("../backend/texteller.js", import.meta.url), "utf8");
 
-async function fixture({ failDecoder = false, failRun = false, neverEnd = false, fetchFails = false } = {}) {
+async function fixture({ failDecoder = false, failRun = false, neverEnd = false, fetchFails = false,
+    isolated = false, cores = 12 } = {}) {
     const allocated = [], prefixes = [], urls = [], released = [];
     class Tensor {
         constructor(type, data, dims) { Object.assign(this, { type, data, dims, location: "cpu" }); allocated.push(this); }
@@ -45,10 +46,11 @@ async function fixture({ failDecoder = false, failRun = false, neverEnd = false,
         return url.endsWith("config.json") && !url.includes("tokenizer")
             ? { decoder: { decoder_start_token_id: 2, eos_token_id: 2 } } : {};
     } };
-    }, BigInt64Array, Float32Array });
+    }, BigInt64Array, Float32Array, crossOriginIsolated: isolated,
+        navigator: { hardwareConcurrency: cores }, setTimeout: callback => setImmediate(callback) });
     const module = new vm.SourceTextModule(source, { context });
     await module.link(name => {
-        const values = name === "./texteller-config.js" ? modelConfig : name === "onnxruntime-web" ? ort : { Tokenizer: class {
+        const values = name === "./texteller-config.js" ? modelConfig : name === "onnxruntime-web/wasm" ? ort : { Tokenizer: class {
             decode(ids, options) {
                 assert.deepEqual(Array.from(ids), neverEnd ? [] : [4]);
                 assert.equal(options.skip_special_tokens, true);
@@ -60,7 +62,7 @@ async function fixture({ failDecoder = false, failRun = false, neverEnd = false,
         }, { context });
     });
     await module.evaluate();
-    return { engine: new module.namespace.TexTellerEngine(), allocated, prefixes, urls, released };
+    return { engine: new module.namespace.TexTellerEngine(), allocated, prefixes, urls, released, runtime: ort };
 }
 
 test("TexTeller uses pinned quantized weights, full prefixes and last-position logits", async () => {
@@ -101,6 +103,26 @@ test("model download failures identify the failing local file", async () => {
     const f = await fixture({ fetchFails: true });
     await assert.rejects(f.engine.init(), /TexTeller config.json: Failed to fetch/);
     assert.equal(f.released.length, 0);
+});
+
+test("WASM uses bounded CPU threads only when the browser is isolated", async () => {
+    for (const [isolated, cores, expected] of [[false, 12, 1], [true, 12, 4], [true, 2, 2], [true, 0, 1]]) {
+        const f = await fixture({ isolated, cores });
+        assert.equal(f.runtime.env.wasm.numThreads, expected);
+    }
+});
+
+test("cancellation before inference allocates nothing; mid-decoding releases all tensors", async () => {
+    for (const cancelInitially of [true, false]) {
+        const f = await fixture();
+        await f.engine.init();
+        await assert.rejects(recognizeWithCleanup(f.engine, { tensor: new Float32Array(448 * 448) }, {
+            isCancelled: () => cancelInitially || f.prefixes.length > 0
+        }), error => error.name === "AbortError");
+        assert.equal(f.prefixes.length, cancelInitially ? 0 : 1);
+        assert.ok(f.allocated.every(t => t.location === "none"));
+        if (cancelInitially) assert.equal(f.allocated.length, 0);
+    }
 });
 
 test("TexTeller decoder errors and token-limit failures release all tensors", async () => {
