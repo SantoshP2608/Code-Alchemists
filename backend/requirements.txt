@@ -1,2 +1,0 @@
-# The active app is entirely browser-side. No Python packages are required.
-# Install JavaScript dependencies from the project root with npm ci.

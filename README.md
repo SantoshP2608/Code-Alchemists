@@ -161,8 +161,7 @@ To download assets separately or retry an interrupted download, run `npm run mod
 Code-Alchemists/
 ├── frontend/
 │   ├── index.html              # App layout and controls
-│   ├── style.css               # Responsive notebook styling
-│   └── script.js               # Older implementation; not the active controller
+│   └── style.css               # Responsive notebook styling
 ├── backend/                    # Browser-side processing, despite the folder name
 │   ├── app.js                  # Drawing, equations, history, and navigation
 │   ├── recognition.worker.js   # Model startup and recognition requests
@@ -185,7 +184,7 @@ Code-Alchemists/
 └── .nvmrc
 ```
 
-The active page loads **`backend/app.js`**. Despite its name, `backend/` contains the browser-side application logic; there is no running Python backend. The legacy `backend/requirements.txt` is not needed for the active app.
+The active page loads **`backend/app.js`**. Despite its name, `backend/` contains the browser-side application logic; there is no running Python backend. Install dependencies from the project root using `npm ci`.
 
 ## Tests
 

@@ -2,7 +2,6 @@
   "name": "calcinksource",
   "version": "1.0.0",
   "description": "",
-  "main": "evaluate.js",
   "scripts": {
     "models:download": "node scripts/download-texteller.mjs",
     "prebuild": "npm run models:download",
