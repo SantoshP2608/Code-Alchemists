@@ -49,6 +49,7 @@ test("preprocessing normalizes pencil colours and excludes marker ink from model
             const canvas = this;
             this.context = {
                 fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
+                save() {}, restore() {},
                 arc() {}, quadraticCurveTo() {}, drawImage() {},
                 fill() { paints.push(this.fillStyle); },
                 stroke() { paints.push(this.strokeStyle); },
@@ -65,13 +66,18 @@ test("preprocessing normalizes pencil colours and excludes marker ink from model
                 { tool: "highlighter", color: "#f7d86a", opacity: 0.28,
                     lineWidth: 60, points: [{ x: 800, y: 300 }, { x: 890, y: 395 }] }
             ]);
-            assert.equal(canvases[0].width, 52);
-            assert.equal(canvases[0].height, 52);
-            assert.equal(canvases[0].paints.at(-1), "#ffffff");
-            assert.equal(input.height, 256);
+            assert.equal(canvases[0].width, 29);
+            assert.equal(canvases[0].height, 29);
+            assert.equal(canvases[0].paints.at(-1), "#000000");
+            assert.equal(input.height, 448);
             assert.equal(input.tensor.length, input.width * input.height);
+            assert.ok(Math.abs(input.tensor[0] - (-0.9545467 / 0.15394445)) < 0.00001);
+            assert.equal(input.contentW, 447);
+            assert.equal(input.contentH, 447);
+            assert.equal(input.tensor[447], 0); // Right padding is applied after normalization.
+            assert.equal(input.tensor[447 * 448], 0); // Bottom padding after normalization.
         }
-        assert.equal(canvases[0].paints.length, 3);
+        assert.equal(canvases[0].paints.length, 6);
     } finally {
         if (previousCanvas === undefined) delete globalThis.OffscreenCanvas;
         else globalThis.OffscreenCanvas = previousCanvas;

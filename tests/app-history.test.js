@@ -387,7 +387,7 @@ test("calculation history pairs equations and answers, keeping only the latest 1
     app.clearBtn.emit("click");
     app.undoBtn.emit("click");
     app.resize();
-    assert.equal(app.calculationHistory.children.length, 0);
+    assert.equal(app.calculationHistory.children.length, 10);
     app.tick();
     for (let i = 1; i <= 12; i++) {
         app.message({ type: "result", version: app.worker.requests.at(-1).version, latex: `${i}+${i}=` });
@@ -396,6 +396,26 @@ test("calculation history pairs equations and answers, keeping only the latest 1
     assert.equal(app.calculationHistory.children.length, 10);
     const fresh = await setup();
     assert.equal(fresh.calculationHistory.children.length, 0);
+});
+
+test("history queues every evaluation after Clear, including repeats, and evicts the oldest", async () => {
+    const app = await setup({ format: formatLatex,
+        loadEvaluator: async () => ({ calculate: expression => expression.slice(0, -1) }) });
+    const evaluated = ["1=", "1=", "2=", "3=", "4=", "5=", "6=", "7=", "8=", "9=", "10=", "11="];
+    for (const latex of evaluated) {
+        app.stroke(10); app.tick(); solveNext(app, latex);
+        app.clearBtn.emit("click");
+        assert.equal(outputs(app).length, 0);
+        assert.equal(app.calculationHistory.children.length, Math.min(app.worker.requests.length, 10));
+        if (app.worker.requests.length === 2) {
+            assert.deepEqual(historyRows(app), [["1 = ", "1"], ["1 = ", "1"]]);
+        }
+    }
+    assert.deepEqual(historyRows(app), evaluated.slice(-10).reverse().map(latex => {
+        const value = latex.slice(0, -1);
+        return [`${value} = `, value];
+    }));
+    assert.equal(app.historyCount.textContent, "10 / 10");
 });
 
 test("incomplete, invalid and failed calculations do not enter calculation history", async () => {
@@ -441,7 +461,7 @@ test("outdated and duplicate worker replies cannot add calculation history entri
     app.message({ type: "result", version: old.version, latex: "stale=" });
     assert.deepEqual(historyRows(app), [["2+3 = ", "answer:2+3="]]);
     app.undoBtn.emit("click");
-    assert.deepEqual(historyRows(app), []);
+    assert.deepEqual(historyRows(app), [["2+3 = ", "answer:2+3="]]);
 });
 
 test("completed strokes and dots undo and redo in order; active strokes disable controls", async () => {
@@ -937,7 +957,7 @@ test("restored drawings use the real LaTeX formatter and bundled WASM calculator
     app.message({ type: "result", version: redone.version, latex: "\\frac{12}{4}=" });
     assert.equal(app.canvasAnswer.textContent, "3");
     assert.equal(app.answer.textContent, "Ready");
-    assert.deepEqual(historyRows(app), [["(12)/(4) = ", "3"]]);
+    assert.deepEqual(historyRows(app), [["(12)/(4) = ", "3"], ["2*3 = ", "6"], ["2*3 = ", "6"]]);
     app.stroke(10);
     app.tick();
     app.message({ type: "result", version: app.worker.requests[3].version, latex: "2+3" });
@@ -1368,7 +1388,7 @@ test("side-by-side equations get separate answers, including unsolved equations"
     assert.equal(outputs(app).length, 3);
 });
 
-test("editing an equation updates its history without invalidating other answers", async () => {
+test("editing an equation appends a new evaluation while retaining previous results and other answers", async () => {
     const app = await setup();
     drawLine(app, 50, 100, 70, 140);
     drawLine(app, 50, 250, 70, 290);
@@ -1377,11 +1397,11 @@ test("editing an equation updates its history without invalidating other answers
     drawLine(app, 55, 110, 60, 130);
     assert.equal(app.canvasAnswer.hidden, true);
     assert.equal(second.hidden, false);
-    assert.deepEqual(historyRows(app), [["8-2 = ", "answer:8-2="]]);
+    assert.deepEqual(historyRows(app), [["8-2 = ", "answer:8-2="], ["2+3 = ", "answer:2+3="]]);
     app.tick();
     assert.equal(app.worker.requests.at(-1).strokes.length, 2);
     solveNext(app, "2+4=");
-    assert.deepEqual(historyRows(app), [["2+4 = ", "answer:2+4="], ["8-2 = ", "answer:8-2="]]);
+    assert.deepEqual(historyRows(app), [["2+4 = ", "answer:2+4="], ["8-2 = ", "answer:8-2="], ["2+3 = ", "answer:2+3="]]);
     assert.equal(second.textContent, "answer:8-2=");
 });
 
@@ -1424,7 +1444,7 @@ test("whole-stroke erasing removes only its equation; undo restores its identity
     app.canvas.emit("pointerdown", { clientX: 50, clientY: 100 });
     app.canvas.emit("pointerup", { clientX: 50, clientY: 100 });
     assert.equal(outputs(app).length, 1);
-    assert.deepEqual(historyRows(app), [["6-1 = ", "answer:6-1="]]);
+    assert.deepEqual(historyRows(app), [["6-1 = ", "answer:6-1="], ["2+3 = ", "answer:2+3="]]);
     app.undoBtn.emit("click"); app.tick();
     assert.equal(app.worker.requests.at(-1).strokes[0].equationId, originalId);
     solveNext(app, "2+3=");
@@ -1464,7 +1484,7 @@ test("all equation outputs follow viewport navigation without recognizing again"
     assert.equal(app.worker.requests.length, 2);
     app.clearBtn.emit("click");
     assert.equal(outputs(app).length, 0);
-    assert.deepEqual(historyRows(app), []);
+    assert.deepEqual(historyRows(app), [["7-1 = ", "answer:7-1="], ["2+3 = ", "answer:2+3="]]);
     app.undoBtn.emit("click"); app.tick();
     solveNext(app, "2+3="); solveNext(app, "7-1=");
     assert.equal(outputs(app).length, 2);
@@ -1534,7 +1554,7 @@ test("highlighter annotations preserve answers, placement and recognition histor
     app.clearBtn.emit("click"); app.undoBtn.emit("click"); app.tick();
     const restored = solveNext(app, "1=");
     assert.equal(restored.strokes.length, 1); // The annotation never reaches the model.
-    assert.equal(app.historyCount.textContent, "1 / 10");
+    assert.equal(app.historyCount.textContent, "2 / 10");
 });
 
 test("highlighter-only drawings, dots and their history never request recognition", async () => {

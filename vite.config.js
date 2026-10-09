@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import { cpSync, copyFileSync } from "node:fs";
+import { copyFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,12 +24,6 @@ export default defineConfig({
       copyFileSync(
         resolve(projectRoot, "dist/frontend/index.html"),
         resolve(projectRoot, "dist/index.html")
-      );
-
-      cpSync(
-        resolve(projectRoot, "models"),
-        resolve(projectRoot, "dist/models"),
-        { recursive: true }
       );
     }
   }]

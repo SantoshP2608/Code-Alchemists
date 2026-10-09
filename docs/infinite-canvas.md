@@ -31,22 +31,23 @@ vertical separation beyond an equation's bounds should exceed 18 world units or
 
 Every equation has a stable identity and its own inline answer. Recognition sends
 only that equation's strokes to the worker and processes pending equations in
-sequence. An edit hides just the affected answer and removes its stale history
-entry until a new result arrives. The new result replaces that equation's entry,
-without keeping duplicate answers for earlier revisions. Other equations retain
-their answers and history. History shows the latest 10 solved equations; all
-solved equations can retain their answers on the canvas.
+sequence. An edit hides just the affected answer while preserving all previously
+evaluated results in history. Each new evaluation appends a separate snapshot,
+including repeated expressions. History keeps the latest 10 evaluations and
+displays them newest first, independent of the ink currently on the canvas.
+Other equations retain their inline answers.
 
 Stroke and pixel erasers preserve equation identity, including pixel fragments.
 Undo and Redo restore membership and re-recognize changed equations. Clear removes
-all ink, answers and history entries together; Undo restores the ink and calculates
-its equations again. Panning and zooming move every answer with its equation.
+all ink and inline answers while preserving calculation history; Undo restores
+the ink and calculates its equations again, appending new history entries.
+Panning and zooming move every answer with its equation.
 
 ## Verification
 
 64 automated tests pass, including world coordinates beyond the initial view,
 zoom anchoring and limits, preserved undo/redo and inference during navigation,
-answer movement, history opening/closing, brush-size scaling, separate rows, side-by-side equations, per-equation history,
+answer movement, history opening/closing, brush-size scaling, separate rows, side-by-side equations, evaluation history,
 independent delayed replies, erasing and identity restoration. CSS parses and
 HTML control identifiers are unique and match the controller.
 

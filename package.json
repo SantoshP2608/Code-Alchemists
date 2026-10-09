@@ -4,7 +4,10 @@
   "description": "",
   "main": "evaluate.js",
   "scripts": {
+    "models:download": "node scripts/download-texteller.mjs",
+    "prebuild": "npm run models:download",
     "build": "vite build",
+    "predev": "npm run models:download",
     "dev": "vite --open /frontend/index.html",
     "test": "node --experimental-vm-modules --test tests/*.test.js"
   },
@@ -12,11 +15,11 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "dependencies": {
-    "ink-on": "^0.1.0",
-    "onnxruntime-web": "^1.30.0"
-  },
   "devDependencies": {
     "vite": "^8.3.3"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "^0.2.0",
+    "onnxruntime-web": "^1.30.0"
   }
 }

@@ -1,23 +1,12 @@
-import * as ort from "onnxruntime-web";
-import { InferenceEngine, loadVocab } from "ink-on/core";
-import { preprocessStrokes } from "./preprocessing.js";
+import { TexTellerEngine } from "./texteller.js";
+import { preprocessStrokes, IMAGE_MEAN, IMAGE_STD } from "./preprocessing.js";
 import { recognizeWithCleanup } from "./inference-resources.js";
 
-// One WASM thread inside this worker keeps the drawing thread free.
-// It also works without cross-origin isolation headers.
-ort.env.wasm.numThreads = 1;
-
 let engine;
-let vocab;
 
 async function initialize() {
     try {
-        vocab = await loadVocab("/models/vocab.json");
-        engine = new InferenceEngine({
-            encoderUrl: "/models/encoder_int8.onnx",
-            decoderUrl: "/models/decoder_int8.onnx",
-            executionProvider: "wasm"
-        });
+        engine = new TexTellerEngine();
         await engine.init();
         self.postMessage({ type: "ready" });
     } catch (error) {
@@ -33,7 +22,7 @@ self.onmessage = async function (event) {
         const input = preprocessStrokes(strokes);
         const pixels = new Uint8ClampedArray(input.tensor.length * 4);
         for (let i = 0; i < input.tensor.length; i++) {
-            const gray = Math.round(input.tensor[i] * 255);
+            const gray = Math.round(Math.max(0, Math.min(1, input.tensor[i] * IMAGE_STD + IMAGE_MEAN)) * 255);
             pixels[i * 4] = gray;
             pixels[i * 4 + 1] = gray;
             pixels[i * 4 + 2] = gray;
@@ -44,7 +33,7 @@ self.onmessage = async function (event) {
             width: input.width, height: input.height, pixels
         }, [pixels.buffer]);
 
-        const result = await recognizeWithCleanup(engine, input, vocab, "number");
+        const result = await recognizeWithCleanup(engine, input);
         self.postMessage({ type: "result", version, latex: result.latex });
     } catch (error) {
         self.postMessage({ type: "error", version, message: error.message });

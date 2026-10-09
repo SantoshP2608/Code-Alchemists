@@ -44,7 +44,7 @@ The examples show the expected arithmetic results. Actual recognition depends on
 | **Highlighter** | Add translucent annotations without sending them to the math recognizer. |
 | **Two eraser modes** | Remove entire strokes or erase portions of a stroke. |
 | **Undo & redo** | Restore drawing, highlighting, erasing, and Clear actions, with up to 100 actions retained. |
-| **Calculation history** | View the latest 10 solved equations; edits replace outdated entries for that equation. |
+| **Calculation history** | View the latest 10 evaluations, including repeats; entries remain after editing, erasing, or clearing the canvas. |
 | **High-DPI rendering** | Keep logical stroke positions stable while adapting the canvas bitmap to display density. |
 | **Local processing** | Run recognition in a browser worker and arithmetic in WebAssembly, without a Python server or cloud inference API. |
 
@@ -74,7 +74,7 @@ flowchart LR
     A[Handwritten strokes] --> B[Equation grouping]
     B --> C[Web Worker]
     C --> D[Crop, resize and normalize]
-    D --> E[CoMER ONNX recognition]
+    D --> E[TexTeller ONNX recognition]
     E --> F[LaTeX formatter]
     F --> G[C++ evaluator / WebAssembly]
     G --> H[Inline answer and history]
@@ -86,9 +86,9 @@ The drawing controller stores stroke coordinates in world space. Each equation h
 
 ### 2. Recognize one equation at a time
 
-A dedicated **Web Worker** prepares the equation's strokes using **OffscreenCanvas**: it crops the ink, renders it as white strokes on black, resizes it proportionally, and creates the model's grayscale tensor and padding mask.
+A dedicated **Web Worker** prepares the equation's strokes using **OffscreenCanvas**: it renders black equation ink on white, crops the white border, resizes proportionally to fit 448 × 448, and normalizes grayscale pixels using TexTeller's mean (0.9545467) and standard deviation (0.15394445). Bottom/right padding is zero in normalized tensor space. Canvas high-quality interpolation approximates the upstream bicubic resize.
 
-**ink-on** runs the quantized **CoMER encoder and decoder** through **ONNX Runtime Web**. Number mode narrows decoding to numerical math. Pending equations are processed sequentially, and revision checks prevent outdated responses from replacing newer edits. Preprocessing and inference are separated from the drawing thread.
+**TexTeller ONNX** runs its quantized encoder and uncached decoder through **ONNX Runtime Web**, using Hugging Face Tokenizers to decode LaTeX. The adapter removes matching outer math delimiters such as `\[...\]` before passing the expression to the existing formatter. Greedy decoding ends at the model's end token; requests exceeding 256 generated tokens report an error instead of calculating a truncated expression. Pending equations are processed sequentially, and revision checks prevent outdated responses from replacing newer edits. Preprocessing and inference are separated from the drawing thread.
 
 ### 3. Format and calculate
 
@@ -116,14 +116,14 @@ Answers are display elements, so they never become recognition input. Editing in
 | Interface | HTML, CSS, and JavaScript |
 | Drawing | Canvas 2D, Pointer Events, and high-DPI scaling |
 | Background processing | Web Workers and OffscreenCanvas |
-| Recognition | ink-on / pretrained CoMER ONNX models |
+| Recognition | onnx-community/TexTeller-ONNX (quantized) |
 | Inference runtime | ONNX Runtime Web, WASM execution provider |
 | Arithmetic | C++ compiled to WebAssembly with Emscripten |
 | Development & build | Vite |
 | Hosting | Vercel |
 | Automated checks | Node.js test runner |
 
-The pretrained models avoid training a recognizer from scratch. The bundled encoder and decoder total approximately **7.6 MB**; model assets and the inference runtime are loaded before recognition can begin. A single WASM inference thread runs inside the worker, without requiring cross-origin isolation headers.
+The TexTeller quantized encoder and decoder total approximately **316 MB**. Before development or building, npm downloads missing assets from Hugging Face into the ignored `public/models/texteller/` directory. Completed files are reused on subsequent runs. The browser loads these files from the app's own origin; inference does not require browser requests to Hugging Face. Model assets and the inference runtime are loaded before recognition can begin. A single WASM inference thread runs inside the worker, without requiring cross-origin isolation headers.
 
 ## Run locally
 
@@ -146,7 +146,9 @@ Keep the development server running. Open the HTTP address rather than double-cl
 npm run build
 ```
 
-The build writes to **`dist/`**. The Vite configuration builds `frontend/index.html`, copies the page to `dist/index.html`, and includes the pretrained files under `dist/models/` for production hosting.
+The build writes to **`dist/`**. The `prebuild` script downloads missing TexTeller files, then Vite copies the public model assets into `dist/models/texteller/`, builds the worker and ONNX WASM runtime, and copies the page to `dist/index.html`. The pinned model revision and file list are in `backend/texteller-config.js`. Build machines need HTTPS access to Hugging Face and its download CDN; browsers only need access to the hosted app. Hosting must support the 228 MB decoder file and the overall model size.
+
+To download assets separately or retry an interrupted download, run `npm run models:download`. Incomplete downloads use `.part` files and are never served as completed weights.
 
 | Vercel setting | Value |
 | --- | --- |
@@ -164,17 +166,19 @@ Code-Alchemists/
 ├── backend/                    # Browser-side processing, despite the folder name
 │   ├── app.js                  # Drawing, equations, history, and navigation
 │   ├── recognition.worker.js   # Model startup and recognition requests
-│   ├── preprocessing.js        # Ink-to-tensor conversion
+│   ├── texteller.js            # TexTeller sessions and token decoding
+│   ├── texteller-config.js     # Pinned model revision and asset paths
+│   ├── preprocessing.js        # TexTeller grayscale preprocessing
 │   ├── formatter.js            # LaTeX-to-arithmetic conversion
 │   ├── stroke-renderer.js      # Pencil and highlighter rendering
 │   ├── inference-resources.js  # Recognition tensor cleanup
 │   ├── evaluate.cpp            # Arithmetic evaluator source
 │   ├── evaluate.js             # Generated WebAssembly loader
 │   └── evaluate.wasm           # Compiled calculator
-├── models/                     # Encoder, decoder, and vocabulary
 ├── tests/                      # Automated regression checks
 ├── docs/                       # Canvas design and quality audit
-├── INK-ON-LICENSE.txt           # Upstream ink-on license
+├── scripts/download-texteller.mjs # Download missing model assets
+├── public/models/texteller/    # Local model assets (ignored by Git)
 ├── package.json
 ├── package-lock.json
 ├── vite.config.js
@@ -189,7 +193,7 @@ The active page loads **`backend/app.js`**. Despite its name, `backend/` contain
 npm test
 ```
 
-**84 automated tests passed during the latest update.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, and inference resource cleanup.
+**90 automated tests pass after the model-loading and history fixes.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
 
 Tests use controlled DOM, canvas, and worker boundaries. They verify application behavior but do not measure real handwriting accuracy, frame rate, or long-session browser memory usage. Node's experimental VM Modules warning is expected for this test setup.
 
@@ -199,25 +203,18 @@ For a browser check, draw two spaced equations ending in `=`, edit one, then try
 
 - **On-device calculations:** handwriting preprocessing, model inference, and arithmetic run inside the browser. No cloud vision or math API is used by this pipeline.
 - **Initial loading:** network access is needed to load the website, model, and runtime assets. Processing can run locally once those assets are ready; this is not a guarantee that a fresh page load or offline reload will work. There is no service-worker installation flow in the current code.
-- **Recognition:** symbol shapes, spacing, and writing style affect accuracy. Number mode does not guarantee correct recognition; the formatter and evaluator cannot repair a misread number or operator.
-- **Session storage:** drawing and calculation history live in memory and reset on refresh. Clear removes the canvas equations and their current history entries; Undo restores the ink and schedules recalculation.
-- **History limits:** drawing history retains 100 actions, and calculation history shows the latest 10 solved equations. Older equations can still keep their inline answers on the canvas.
+- **Recognition:** symbol shapes, spacing, and writing style affect accuracy. TexTeller recognizes general LaTeX, but the calculator supports basic arithmetic only. Recognition is not guaranteed; the formatter and evaluator cannot repair a misread number or operator.
+- **Session storage:** drawing and calculation history live in memory and reset on refresh. Clear removes canvas equations and answers while keeping calculation history; Undo restores the ink and schedules recalculation, which adds new history entries.
+- **History limits:** drawing history retains 100 actions. Calculation history is a queue of the latest 10 evaluations, displayed newest first; each result is appended and the oldest is removed when full. Repeated results occupy separate entries, regardless of whether the original ink remains on the canvas.
 - **Scope:** multiple independent equations are supported. This is not a general symbolic algebra engine or a solver for expressions with variables, powers, or subscripts.
 
-For implementation details and audit limits, see [Infinite canvas and multiple equations](docs/infinite-canvas.md) and [Quality checklist](docs/quality-checklist.md). Those documents describe earlier verification snapshots; the test count above comes from the current checkout.
+For implementation details and audit limits, see [Infinite canvas and multiple equations](docs/infinite-canvas.md) and [Quality checklist](docs/quality-checklist.md). The checklist distinguishes historical browser checks from TexTeller verification.
 
 ## Model attribution
 
-CalcInk bundles pretrained weights and vocabulary rather than training a model from scratch.
+CalcInk uses [onnx-community/TexTeller-ONNX](https://huggingface.co/onnx-community/TexTeller-ONNX), an Apache-2.0 ONNX export of [OleehyO/TexTeller](https://github.com/OleehyO/TexTeller). Setup downloads use revision `9727784d91d7f8437dc7140941c4335284ce075e`, with `encoder_model_quantized.onnx`, `decoder_model_quantized.onnx`, model configuration, and tokenizer files from that same revision. Downloaded assets are served locally and excluded from Git. No previous recognition weights or vocabulary remain in this checkout.
 
-| Resource | Source |
-| --- | --- |
-| Browser integration and ONNX release | [kimseungdae/ink-on](https://github.com/kimseungdae/ink-on) · [Model release](https://github.com/kimseungdae/ink-on/releases/tag/v0.1.0) |
-| Original model architecture | [CoMER — Coverage-guided Transformer for handwritten mathematical expression recognition, ECCV 2022](https://github.com/Green-Wood/CoMER) |
-| Inference runtime | [ONNX Runtime](https://github.com/microsoft/onnxruntime) |
-| Adapted preprocessing code | ink-on 0.1.0, **Apache-2.0**; license included in [INK-ON-LICENSE.txt](INK-ON-LICENSE.txt) |
-
-The bundled files are `models/encoder_int8.onnx`, `models/decoder_int8.onnx`, and `models/vocab.json`. The ink-on code license is included for its integration and adapted code; consult the linked model sources for weight provenance and reuse terms.
+Inference uses [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) and [Hugging Face Tokenizers](https://github.com/huggingface/tokenizers.js). Input normalization follows [TexTeller's preprocessing](https://github.com/OleehyO/TexTeller/blob/main/texteller/utils/image.py). The model has no image-processor configuration or merged/cached decoder, so the app uses its encoder and decoder sessions directly instead of an image-to-text pipeline.
 
 ---
 

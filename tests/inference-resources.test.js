@@ -22,15 +22,13 @@ function engineFixture({ encoderFails = false, decoderFails = false, decodeFails
             if (decoderFails) throw new Error("Decoder failed");
             return { logits: tensor() };
         } },
-        async recognize(input, vocab, mode) {
-            assert.equal(mode, "number");
-            const values = tensor();
-            const mask = tensor();
-            const encoded = await this.encoderSession.run({ pixel_values: values, pixel_mask: mask });
+        async recognize(input, track) {
+            const { values, mask } = track({ values: tensor(), mask: tensor() });
+            const encoded = track(await this.encoderSession.run({ pixel_values: values, pixel_mask: mask }));
             values.dispose();
             mask.dispose();
-            const ids = tensor();
-            await this.decoderSession.run({ ...encoded, input_ids: ids });
+            const { ids } = track({ ids: tensor() });
+            track(await this.decoderSession.run({ ...encoded, input_ids: ids }));
             ids.dispose();
             if (decodeFails) throw new Error("Decode failed");
             encoded.features.dispose();
@@ -41,7 +39,7 @@ function engineFixture({ encoderFails = false, decoderFails = false, decodeFails
     return { engine, allocated };
 }
 
-test("recognition disposes session outputs and restores session methods on success", async () => {
+test("recognition disposes session outputs without replacing session methods", async () => {
     const { engine, allocated } = engineFixture();
     const encoderRun = engine.encoderSession.run;
     const decoderRun = engine.decoderSession.run;

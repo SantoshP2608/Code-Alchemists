@@ -1,5 +1,42 @@
 # CalcInk quality checklist
 
+Historical audit of the recognizer used on 7 October 2026. The TexTeller migration
+uses different preprocessing, decoding, and resource tracking; the real-model
+recognition and memory observations in that historical audit do not validate TexTeller.
+
+## TexTeller migration verification — 9 October 2026
+
+### Follow-up: model loading and evaluation history
+
+- Model assets now download during npm setup and are served from the app's own
+  origin in both development and production. Completed downloads are reused;
+  interrupted downloads are not published as complete files.
+- Chrome verified both `npm run dev` and the production preview reach
+  `Handwriting model ready`. Pointer strokes forming `1=` were recognized,
+  evaluated to `1`, and appended to history. Clear preserved the history entry.
+- `npm test`: 90 tests pass. The history queue preserves past evaluations
+  through editing, erasing and Clear, includes repeats, and retains the latest 10.
+- Model-loading errors identify the file that failed. `npm run build` succeeds
+  and includes the local model assets. Formatter and calculator remain unchanged.
+
+### Initial migration checks
+
+- `npm test`: 88 tests pass, including decoder prefixes, last-position logits,
+  end-token handling, token limits, failure cleanup, normalization and padding.
+- `npm run build`: succeeds with the worker and ONNX WASM runtime bundled.
+- Actual pinned quantized ONNX weights loaded in ONNX Runtime Web's Node WASM
+  environment. Encoder input/output: `pixel_values` / `last_hidden_state`;
+  decoder inputs/output: `input_ids`, `encoder_hidden_states` / `logits`.
+- A synthetic raster drawing of `1=` produced `\[1=\]` in 7.25 seconds on the
+  test machine. A regression verifies that the adapter removes those outer
+  delimiters and the unchanged formatter and actual calculator WASM return `1`.
+- The formatter, C++ source, generated calculator loader and calculator WASM
+  remain unchanged. Browser handwriting accuracy and long-session memory have
+  not been measured for TexTeller. Canvas resize interpolation approximates
+  the upstream bicubic resize; the weights total about 316 MB to download.
+
+## Historical audit — 7 October 2026
+
 Checked on 7 October 2026 with Node 24.12.0 and npm 11.6.2.
 Changes remain local for review.
 

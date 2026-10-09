@@ -57,8 +57,6 @@ function invalidateEquation(equation) {
     equation.dirty = equation.strokes.length > 0;
     equation.output.hidden = true;
     equation.output.textContent = "";
-    const row = calculationHistory.findIndex(entry => entry.equationId === equation.id);
-    if (row !== -1) calculationHistory.splice(row, 1);
 }
 
 function synchronizeEquations() {
@@ -77,7 +75,6 @@ function synchronizeEquations() {
             invalidateEquation(equation);
         }
     }
-    renderCalculationHistory();
     positionCanvasAnswer();
     return changed;
 }
@@ -418,7 +415,8 @@ function showAnswer(latex, equation) {
             equation.output.textContent = answer;
             equation.output.hidden = false;
             positionCanvasAnswer();
-            calculationHistory.push({ equationId: equation.id, equation: expression, answer });
+            // Keep evaluation snapshots independently of the canvas equation.
+            calculationHistory.push({ equation: expression, answer });
             if (calculationHistory.length > calculationHistoryLimit) {
                 calculationHistory.shift();
             }

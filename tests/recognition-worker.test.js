@@ -14,14 +14,12 @@ test("model startup failure reports an error and closes the worker; success stay
             close() { closed = true; }
         } });
         const dependencies = {
-            "onnxruntime-web": { env: { wasm: {} } },
-            "ink-on/core": {
-                loadVocab: async () => ({}),
-                InferenceEngine: class { async init() {
+            "./texteller.js": {
+                TexTellerEngine: class { async init() {
                     if (fails) throw new Error("Decoder could not load");
                 } }
             },
-            "./preprocessing.js": { preprocessStrokes() {} },
+            "./preprocessing.js": { preprocessStrokes() {}, IMAGE_MEAN: 0.9545467, IMAGE_STD: 0.15394445 },
             "./inference-resources.js": { recognizeWithCleanup() {} }
         };
         const app = new vm.SourceTextModule(source, { context });
