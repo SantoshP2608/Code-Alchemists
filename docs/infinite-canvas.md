@@ -25,9 +25,14 @@ Write equations on separate rows or side by side with a clear gap. Nearby stroke
 join the same equation; distant strokes start another. After an equation has been
 calculated, writing beyond its right edge starts a new equation. Finish each with
 `=`. Grouping uses ink geometry, so avoid overlapping equations or extremely tight
-spacing. Normal horizontal gaps of over 120 world units always separate groups;
-vertical separation beyond an equation's bounds should exceed 18 world units or
-35% of its ink height, whichever is larger.
+spacing. Horizontal tolerance grows with the ink height (1.1 times that height),
+with a minimum of 80 and maximum of 240 visible pixels. Large handwriting can
+therefore contain wider symbol gaps. Ordinary vertical tolerance remains 18
+visible pixels or 35% of the ink height, whichever is larger. A lone flat bar
+allows an aligned second bar up to half its width away vertically, capped at 40
+visible pixels, so wide equals signs stay together. Tolerances account for zoom
+and canvas size. Very distant strokes and writing past a completed equation
+continue to start new equations.
 
 Every equation has a stable identity and its own inline answer. Recognition sends
 only that equation's strokes to the worker and processes pending equations in

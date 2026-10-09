@@ -16,10 +16,8 @@ let nextRequestId = 1;
 let activeRecognition = null;
 
 function equationAt(point) {
-    // Pointer coordinates are converted to world space. Convert the fixed
-    // spacing tolerances too, so the same visible writing groups identically
-    // at every zoom and responsive canvas width. Bounds and saved ink stay in
-    // world space; navigation never reassigns existing equation memberships.
+    // Scale tolerances into world space and allow gaps proportional to ink
+    // height, so large handwriting can keep its operators and equals together.
     const worldPerPixel = 1 / viewportScale();
     let best = null, distance = Infinity;
     for (const equation of equations.values()) {
@@ -30,12 +28,22 @@ function equationAt(point) {
             top = Math.min(top, p.y); bottom = Math.max(bottom, p.y);
         }
         const height = bottom - top;
+        const width = right - left;
         const verticalGap = Math.max(top - point.y, point.y - bottom, 0);
         const horizontalGap = Math.max(left - point.x, point.x - right, 0);
+        const horizontalTolerance = Math.max(80 * worldPerPixel,
+            Math.min(240 * worldPerPixel, height * 1.1));
+        // A lone horizontal bar has almost no height. Use its width to admit
+        // the aligned second bar of an equals sign, with a bounded row gap.
+        const flatBar = equation.strokes.length === 1 && width >= 24 * worldPerPixel &&
+            height <= Math.max(6 * worldPerPixel, width * 0.15);
+        const barGap = flatBar && horizontalGap <= 12 * worldPerPixel
+            ? Math.min(40 * worldPerPixel, width * 0.5) : 0;
+        const verticalTolerance = Math.max(18 * worldPerPixel, height * 0.35, barGap);
         // A completed equation's right edge starts a new equation, rather than
         // absorbing another equation written alongside its displayed answer.
         if (equation.expression && point.x > right + 24 * worldPerPixel) continue;
-        if (verticalGap > Math.max(18 * worldPerPixel, height * 0.35) || horizontalGap > Math.max(80 * worldPerPixel, Math.min(120 * worldPerPixel, height * 1.1))) continue;
+        if (verticalGap > verticalTolerance || horizontalGap > horizontalTolerance) continue;
         const score = horizontalGap + Math.abs(point.y - (top + bottom) / 2);
         if (score < distance) { best = equation; distance = score; }
     }

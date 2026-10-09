@@ -65,7 +65,7 @@ The examples show the expected arithmetic results. Actual recognition depends on
 | Clear | **Clear** button; clearing ink is undoable |
 | View calculations | **History** button; close with its close button, Escape, or an outside click |
 
-Keep a visible gap between equations. Grouping uses stroke geometry rather than fixed notebook rows, so overlapping or tightly packed equations can be grouped incorrectly.
+Keep a visible gap between equations. Grouping uses stroke geometry rather than fixed notebook rows. Within an equation, larger handwriting allows wider symbol gaps, and aligned equals strokes stay together. Overlapping or tightly packed independent equations can still be grouped incorrectly.
 
 ## How it works
 
@@ -193,7 +193,7 @@ The active page loads **`backend/app.js`**. Despite its name, `backend/` contain
 npm test
 ```
 
-**90 automated tests pass after the model-loading and history fixes.** Coverage includes drawing history, both eraser modes, colours and highlighters, separate equations, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
+**93 automated tests pass after the grouping, model-loading and history fixes.** Coverage includes large handwriting gaps at different zoom levels, equals-bar grouping, separate equations, drawing history, both eraser modes, colours and highlighters, stale worker replies, startup recovery, canvas navigation, proportional answer sizing and readability at reduced zoom, display-density changes, TexTeller decoding, and inference resource cleanup.
 
 Tests use controlled DOM, canvas, and worker boundaries. They verify application behavior but do not measure real handwriting accuracy, frame rate, or long-session browser memory usage. Node's experimental VM Modules warning is expected for this test setup.
 
